@@ -14,7 +14,10 @@ const state = {
   params: {},
   selectedVariable: null,
   arrowOverrides: {},   // jointKey -> {x, y} calibrated arrow target, overrides the default
-  calibrating: false
+  calibrating: false,
+  fieldWeld: false,
+  weldAllAround: false,
+  chainStagger: "chain"
 };
 
 const STEP_COUNT = 4;
@@ -75,6 +78,10 @@ function handleSvgClick(evt) {
   const svgPt = pt.matrixTransform(ctm.inverse());
   setArrowOverride(svgPt.x, svgPt.y);
 }
+
+function toggleFieldWeld(checked) { state.fieldWeld = checked; renderVisual(); }
+function toggleWeldAllAround(checked) { state.weldAllAround = checked; renderVisual(); }
+function setChainStagger(val) { state.chainStagger = val; renderVisual(); }
 
 function stepNext() { if (state.step < STEP_COUNT - 1) { state.step++; render(); } }
 function stepBack() { if (state.step > 0) { state.step--; render(); } }
@@ -234,6 +241,39 @@ function buildSideStep(container) {
   container.appendChild(fsArrow);
   document.getElementById("btn-calibrate").onclick = () => toggleCalibrate(!state.calibrating);
   document.getElementById("btn-reset-arrow").onclick = () => resetArrowOverride();
+
+  const fsSymbols = document.createElement("fieldset");
+  fsSymbols.innerHTML = `<legend>Supplementary symbols</legend>`;
+  const symWrap = document.createElement("div");
+  symWrap.innerHTML = `
+    <label class="dims-toggle"><input type="checkbox" id="toggle-field-weld" ${state.fieldWeld ? "checked" : ""}> Field weld (flag)</label>
+    <label class="dims-toggle"><input type="checkbox" id="toggle-weld-all-around" ${state.weldAllAround ? "checked" : ""}> Weld-all-around (circle)</label>`;
+  fsSymbols.appendChild(symWrap);
+  container.appendChild(fsSymbols);
+  document.getElementById("toggle-field-weld").onchange = (e) => toggleFieldWeld(e.target.checked);
+  document.getElementById("toggle-weld-all-around").onchange = (e) => toggleWeldAllAround(e.target.checked);
+
+  if (state.weld === "fillet" && state.side === "double" &&
+      state.params.length !== undefined && state.params.pitch !== undefined) {
+    const fsChain = document.createElement("fieldset");
+    fsChain.innerHTML = `<legend>Intermittent weld pattern</legend>`;
+    const chainToggle = document.createElement("div");
+    chainToggle.className = "side-toggle";
+    ["chain", "staggered"].forEach(v => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = v === "chain" ? "Chain" : "Staggered";
+      b.className = state.chainStagger === v ? "active" : "";
+      b.onclick = () => setChainStagger(v);
+      chainToggle.appendChild(b);
+    });
+    fsChain.appendChild(chainToggle);
+    const hint = document.createElement("div");
+    hint.className = "field-hint";
+    hint.textContent = "Chain: welds on both sides align. Staggered: welds on the other side are offset so segments don't line up.";
+    fsChain.appendChild(hint);
+    container.appendChild(fsChain);
+  }
 
   const fs2 = document.createElement("fieldset");
   fs2.innerHTML = `<legend>Tail (optional)</legend>`;
