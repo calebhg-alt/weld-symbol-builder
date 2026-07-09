@@ -84,11 +84,16 @@ function buildJointIllustration(jointKey) {
 function jointSeamPoint(jointKey) {
   const cx = 130, cy = 250;
   switch (jointKey) {
+    // Root = the gap between the two plate edges, at mid-thickness.
     case "butt": return { x: cx, y: cy };
+    // Root = where the upright member's edge meets the base plate surface.
     case "tjoint": return { x: cx, y: cy + 10 };
-    case "lap": return { x: cx, y: cy + 10 };
-    case "corner": return { x: cx, y: cy - 10 };
-    case "edge": return { x: cx, y: cy - 6 };
+    // Root = the edge of the top plate, at the surface of the plate beneath it.
+    case "lap": return { x: cx + 10, y: cy + 16 };
+    // Root = the outside vertex where the base plate's edge meets the upright.
+    case "corner": return { x: cx + 10, y: cy - 10 };
+    // Root = the aligned edges of the two parallel plates.
+    case "edge": return { x: cx + 60, y: cy - 9 };
     default: return { x: cx, y: cy };
   }
 }
@@ -104,7 +109,7 @@ function buildReferenceLine(hasTail, tailText, weldKey) {
   const ax1 = LINE_X1, ay1 = LINE_Y;
   const ax2 = seamPt.x, ay2 = seamPt.y;
 
-  const needsBreak = (weldKey === "bevel" || weldKey === "j");
+  const needsBreak = (weldKey === "bevel" || weldKey === "j" || weldKey === "flarebevel");
   if (needsBreak) {
     const bx = ax1 - (ax1 - ax2) * 0.4;
     const by = ay1 - (ay1 - ay2) * 0.4;
@@ -158,38 +163,70 @@ function buildGlyph(weldKey, cx, dir, params) {
     return g;
   }
 
-  if (weldKey === "v" || weldKey === "u") {
+  // Shared depth constants so every groove leg reads at a consistent scale.
+  const DEPTH = 50;   // how far an open/floating leg extends from the reference line
+  const GAP = 12;      // how far a curve's near-line point sits off the line
+
+  if (weldKey === "v") {
+    // Vertex sits ON the reference line; both arms diverge away to open, unconnected ends.
     const halfW = clamp(10 + (params.grooveAngle / 90) * 38, 10, 48);
-    const depth = 46 * dir;
-    const color = weldKey === "v" ? "#7FC0E8" : "#C792EA";
-    if (weldKey === "v") {
-      g.appendChild(el("polyline", {
-        points: `${cx - halfW},${lineY} ${cx},${lineY + depth} ${cx + halfW},${lineY}`,
-        fill: "none", stroke: color, "stroke-width": 2.5
-      }));
-    } else {
-      const path = `M ${cx - halfW},${lineY} Q ${cx - halfW},${lineY + depth} ${cx},${lineY + depth} Q ${cx + halfW},${lineY + depth} ${cx + halfW},${lineY}`;
-      g.appendChild(el("path", { d: path, fill: "none", stroke: color, "stroke-width": 2.5 }));
-    }
-    g.appendChild(textEl(cx, lineY + dir * 8 - dir * 2, `${params.grooveAngle}°`, { anchor: "middle", fill: color, size: 13 }));
-    g.appendChild(textEl(cx, lineY + dir * (Math.abs(depth) + 16), fmt(params.rootOpening), { anchor: "middle", fill: color, size: 12 }));
+    g.appendChild(el("polyline", {
+      points: `${cx - halfW},${lineY + dir * DEPTH} ${cx},${lineY} ${cx + halfW},${lineY + dir * DEPTH}`,
+      fill: "none", stroke: "#7FC0E8", "stroke-width": 2.5
+    }));
+    g.appendChild(textEl(cx, lineY + dir * 18, `${params.grooveAngle}°`, { anchor: "middle", fill: "#7FC0E8", size: 13 }));
+    g.appendChild(textEl(cx, lineY + dir * (DEPTH + 16), fmt(params.rootOpening), { anchor: "middle", fill: "#7FC0E8", size: 12 }));
     return g;
   }
 
-  if (weldKey === "bevel" || weldKey === "j") {
-    const width = 44;
-    const depth = 42 * dir;
-    const color = weldKey === "bevel" ? "#EFA36B" : "#E38DBF";
-    if (weldKey === "bevel") {
-      g.appendChild(el("polyline", {
-        points: `${cx - 16},${lineY} ${cx - 16},${lineY + depth} ${cx + width - 16},${lineY}`,
-        fill: "none", stroke: color, "stroke-width": 2.5
-      }));
-    } else {
-      const path = `M ${cx - 16},${lineY} L ${cx - 16},${lineY + depth} Q ${cx + 6},${lineY + depth} ${cx + width - 16},${lineY}`;
-      g.appendChild(el("path", { d: path, fill: "none", stroke: color, "stroke-width": 2.5 }));
-    }
-    g.appendChild(textEl(cx + 4, lineY + dir * 8 - dir * 2, `${params.grooveAngle}°`, { anchor: "middle", fill: color, size: 13 }));
+  if (weldKey === "bevel") {
+    // Vertex on the line; the perpendicular member's leg and the beveled member's leg
+    // both reach the same depth, so the two members read as equal length.
+    const spread = 50;
+    g.appendChild(el("polyline", {
+      points: `${cx},${lineY + dir * DEPTH} ${cx},${lineY} ${cx + spread},${lineY + dir * DEPTH}`,
+      fill: "none", stroke: "#EFA36B", "stroke-width": 2.5
+    }));
+    g.appendChild(textEl(cx + 4, lineY + dir * 18, `${params.grooveAngle}°`, { anchor: "middle", fill: "#EFA36B", size: 13 }));
+    return g;
+  }
+
+  if (weldKey === "u") {
+    // Flipped arch: the rounded peak sits near the line (bridged by a short stem),
+    // and both legs open away to unconnected ends — mirrors the V-groove logic.
+    const halfW = clamp(10 + (params.grooveAngle / 90) * 34, 18, 44);
+    const peakY = lineY + dir * GAP;
+    const openY = lineY + dir * DEPTH;
+    g.appendChild(el("line", { x1: cx, y1: lineY, x2: cx, y2: peakY, stroke: "#C792EA", "stroke-width": 2.5 }));
+    const path = `M ${cx - halfW},${openY} Q ${cx - halfW},${peakY} ${cx},${peakY} Q ${cx + halfW},${peakY} ${cx + halfW},${openY}`;
+    g.appendChild(el("path", { d: path, fill: "none", stroke: "#C792EA", "stroke-width": 2.5 }));
+    g.appendChild(textEl(cx, lineY + dir * (DEPTH + 16), fmt(params.rootOpening), { anchor: "middle", fill: "#C792EA", size: 12 }));
+    return g;
+  }
+
+  if (weldKey === "j") {
+    // Half of the U: the straight member's line touches the reference line and
+    // runs full depth. The curved member leaves that same line, offset by a small
+    // gap, and opens away to its own end — the left arc of the U is simply gone.
+    const spread = 38;
+    const curveStartY = lineY + dir * GAP;
+    const openY = lineY + dir * DEPTH;
+    g.appendChild(el("line", { x1: cx, y1: lineY, x2: cx, y2: openY, stroke: "#993556", "stroke-width": 2.5 }));
+    const jPath = `M ${cx},${curveStartY} Q ${cx + spread},${curveStartY} ${cx + spread},${openY}`;
+    g.appendChild(el("path", { d: jPath, fill: "none", stroke: "#993556", "stroke-width": 2.5 }));
+    return g;
+  }
+
+  if (weldKey === "flarebevel") {
+    // Flat member: straight line to the reference line, full depth.
+    // Round/curved member: a short stem off the line, then a hook curving open.
+    const openY = lineY + dir * DEPTH;
+    const stemPeakY = lineY + dir * GAP;
+    g.appendChild(el("line", { x1: cx - 16, y1: lineY, x2: cx - 16, y2: openY, stroke: "#0F6E56", "stroke-width": 2.5 }));
+    g.appendChild(el("line", { x1: cx + 13, y1: lineY, x2: cx + 13, y2: stemPeakY, stroke: "#0F6E56", "stroke-width": 2.5 }));
+    const path = `M ${cx + 13},${stemPeakY} Q ${cx + 13},${openY} ${cx + 40},${openY}`;
+    g.appendChild(el("path", { d: path, fill: "none", stroke: "#0F6E56", "stroke-width": 2.5 }));
+    g.appendChild(textEl(cx, lineY + dir * (DEPTH + 16), fmt(params.grooveRadius), { anchor: "middle", fill: "#0F6E56", size: 12 }));
     return g;
   }
 
