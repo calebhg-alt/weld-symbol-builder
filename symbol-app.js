@@ -59,8 +59,20 @@ function toggleAdvanced(checked) {
   if (!avail.includes(state.weld)) { state.weld = avail[0]; initParams(state.weld); }
   render();
 }
-function setTail(val) { state.tailText = val; render(); }
-function setParam(key, val) { state.params[key] = parseFloat(val); render(); }
+function setTail(val) { state.tailText = val; renderVisual(); }
+function setParam(key, val) {
+  const num = parseFloat(val);
+  if (!isNaN(num)) { state.params[key] = num; renderVisual(); }
+}
+function finalizeParam(key, inputEl) {
+  const def = PARAM_DEFS[key];
+  let num = parseFloat(inputEl.value);
+  if (isNaN(num)) num = def.default;
+  num = clamp(num, def.min, def.max);
+  state.params[key] = num;
+  inputEl.value = num;
+  renderVisual();
+}
 
 // ---------- Panel builders ----------
 function buildJointStep(container) {
@@ -154,12 +166,17 @@ function buildParamsStep(container) {
     const group = document.createElement("div");
     group.className = "field-group";
     group.innerHTML = `
-      <label for="p-${key}">${def.label} <span class="field-value">${fmt(val)} ${def.unit}</span></label>
-      <input type="range" id="p-${key}" min="${def.min}" max="${def.max}" step="${def.step}" value="${val}">
-      <div class="field-hint">${def.hint}</div>`;
+      <label for="p-${key}">${def.label}</label>
+      <div class="number-input-row">
+        <input type="number" id="p-${key}" min="${def.min}" max="${def.max}" step="${def.step}" value="${fmt(val)}">
+        <span class="unit-suffix">${def.unit}</span>
+      </div>
+      <div class="field-hint">${def.hint} Range: ${fmt(def.min)}\u2013${fmt(def.max)} ${def.unit}.</div>`;
     fs.appendChild(group);
     setTimeout(() => {
-      document.getElementById(`p-${key}`).oninput = (e) => setParam(key, e.target.value);
+      const inputEl = document.getElementById(`p-${key}`);
+      inputEl.oninput = (e) => setParam(key, e.target.value);
+      inputEl.onblur = (e) => finalizeParam(key, e.target);
     }, 0);
   });
   container.appendChild(fs);
@@ -175,6 +192,13 @@ function setFeedback(text) {
 }
 
 // ---------- Render ----------
+function renderVisual() {
+  document.getElementById("tb-joint").textContent = JOINT_TYPES[state.joint].label;
+  document.getElementById("tb-weld").textContent = WELD_TYPES[state.weld].label;
+  document.getElementById("tb-side").textContent = { arrow: "Arrow side", other: "Other side", double: "Double" }[state.side];
+  renderSymbol(document.getElementById("symbol-svg"), state);
+}
+
 function render() {
   const root = document.getElementById("panel-root");
   root.innerHTML = "";
@@ -198,11 +222,7 @@ function render() {
     buildParamsStep(root);
   }
 
-  document.getElementById("tb-joint").textContent = JOINT_TYPES[state.joint].label;
-  document.getElementById("tb-weld").textContent = WELD_TYPES[state.weld].label;
-  document.getElementById("tb-side").textContent = { arrow: "Arrow side", other: "Other side", double: "Double" }[state.side];
-
-  renderSymbol(document.getElementById("symbol-svg"), state);
+  renderVisual();
 }
 
 function fmt(n) {
