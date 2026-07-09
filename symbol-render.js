@@ -11,8 +11,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const LINE_Y = 190;
 const LINE_X1 = 330;
 const LINE_X2 = 800;
-const ARROW_JOINT_X = 190;
-const ARROW_JOINT_Y = 250;
+const BASE_WIDTH = 900;
+const SHEET_HEIGHT = 420;
 
 function el(tag, attrs, children) {
   const e = document.createElementNS(SVG_NS, tag);
@@ -32,16 +32,22 @@ function textEl(x, y, str, opts) {
   }, [document.createTextNode(str)]);
 }
 
+// Rough width estimate for IBM Plex Sans Condensed at a given font size —
+// used only to decide how much extra sheet width the tail text needs.
+function estimateTextWidth(str, fontSize) {
+  return (str || "").length * fontSize * 0.62;
+}
+
 // ---------- Background blueprint grid ----------
-function buildGrid() {
+function buildGrid(width) {
   const g = el("g", { "aria-hidden": "true" });
-  for (let x = 0; x <= 900; x += 30) {
-    g.appendChild(el("line", { x1: x, y1: 0, x2: x, y2: 420, stroke: "rgba(255,255,255,0.06)", "stroke-width": 1 }));
+  for (let x = 0; x <= width; x += 30) {
+    g.appendChild(el("line", { x1: x, y1: 0, x2: x, y2: SHEET_HEIGHT, stroke: "rgba(255,255,255,0.06)", "stroke-width": 1 }));
   }
-  for (let y = 0; y <= 420; y += 30) {
-    g.appendChild(el("line", { x1: 0, y1: y, x2: 900, y2: y, stroke: "rgba(255,255,255,0.06)", "stroke-width": 1 }));
+  for (let y = 0; y <= SHEET_HEIGHT; y += 30) {
+    g.appendChild(el("line", { x1: 0, y1: y, x2: width, y2: y, stroke: "rgba(255,255,255,0.06)", "stroke-width": 1 }));
   }
-  g.appendChild(el("rect", { x: 6, y: 6, width: 888, height: 408, fill: "none", stroke: "rgba(255,255,255,0.22)", "stroke-width": 1.5 }));
+  g.appendChild(el("rect", { x: 6, y: 6, width: width - 12, height: SHEET_HEIGHT - 12, fill: "none", stroke: "rgba(255,255,255,0.22)", "stroke-width": 1.5 }));
   return g;
 }
 
@@ -99,14 +105,22 @@ function jointSeamPoint(jointKey) {
   }
 }
 
+// A person-calibrated arrow target always wins over the built-in default —
+// this is what lets the user correct the arrow position themselves instead
+// of relying on hardcoded guesses.
+function getEffectiveSeam(jointKey) {
+  if (state.arrowOverrides && state.arrowOverrides[jointKey]) {
+    return state.arrowOverrides[jointKey];
+  }
+  return jointSeamPoint(jointKey);
+}
+
 // ---------- Reference line, arrow, tail ----------
-function buildReferenceLine(hasTail, tailText, weldKey) {
+function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt) {
   const g = el("g", {});
-  const seam = arguments.__seam || null;
-  g.appendChild(el("line", { x1: LINE_X1, y1: LINE_Y, x2: LINE_X2, y2: LINE_Y, stroke: "#E8EEF5", "stroke-width": 2.5 }));
+  g.appendChild(el("line", { x1: LINE_X1, y1: LINE_Y, x2: lineX2, y2: LINE_Y, stroke: "#E8EEF5", "stroke-width": 2.5 }));
 
   // arrow from left end of reference line to the joint seam
-  const seamPt = window.__currentSeam;
   const ax1 = LINE_X1, ay1 = LINE_Y;
   const ax2 = seamPt.x, ay2 = seamPt.y;
 
@@ -128,11 +142,18 @@ function buildReferenceLine(hasTail, tailText, weldKey) {
   const ah2x = ax2 - 14 * Math.cos(angle + 0.35), ah2y = ay2 - 14 * Math.sin(angle + 0.35);
   g.appendChild(el("polygon", { points: `${ax2},${ay2} ${ah1x},${ah1y} ${ah2x},${ah2y}`, fill: "#E8EEF5" }));
 
+  // Calibration crosshair — only shown while the person is actively placing the arrow.
+  if (state.calibrating) {
+    g.appendChild(el("circle", { cx: ax2, cy: ay2, r: 9, fill: "none", stroke: "#F2C744", "stroke-width": 2, "stroke-dasharray": "3 3" }));
+    g.appendChild(el("line", { x1: ax2 - 14, y1: ay2, x2: ax2 + 14, y2: ay2, stroke: "#F2C744", "stroke-width": 1.5 }));
+    g.appendChild(el("line", { x1: ax2, y1: ay2 - 14, x2: ax2, y2: ay2 + 14, stroke: "#F2C744", "stroke-width": 1.5 }));
+  }
+
   // tail
   if (hasTail && tailText) {
-    g.appendChild(el("line", { x1: LINE_X2, y1: LINE_Y, x2: LINE_X2 + 46, y2: LINE_Y - 10, stroke: "#E8EEF5", "stroke-width": 2 }));
-    g.appendChild(el("line", { x1: LINE_X2, y1: LINE_Y, x2: LINE_X2 + 46, y2: LINE_Y + 10, stroke: "#E8EEF5", "stroke-width": 2 }));
-    g.appendChild(textEl(LINE_X2 + 54, LINE_Y + 5, tailText, { size: 14, weight: 500 }));
+    g.appendChild(el("line", { x1: lineX2, y1: LINE_Y, x2: lineX2 + 46, y2: LINE_Y - 10, stroke: "#E8EEF5", "stroke-width": 2 }));
+    g.appendChild(el("line", { x1: lineX2, y1: LINE_Y, x2: lineX2 + 46, y2: LINE_Y + 10, stroke: "#E8EEF5", "stroke-width": 2 }));
+    g.appendChild(textEl(lineX2 + 54, LINE_Y + 5, tailText, { size: 14, weight: 500 }));
   }
   return g;
 }
@@ -346,22 +367,29 @@ function addContourFinish(g, cx, dir, params, color, contourY, finishY) {
 }
 
 // ---------- Master render ----------
-function renderSymbol(svg, state) {
+function renderSymbol(svg, appState) {
   while (svg.firstChild) svg.removeChild(svg.firstChild);
-  svg.appendChild(buildGrid());
-  svg.appendChild(buildJointIllustration(state.joint));
 
-  window.__currentSeam = jointSeamPoint(state.joint);
-  svg.appendChild(buildReferenceLine(!!state.tailText, state.tailText, state.weld));
+  // The sheet grows to fit a long tail note instead of clipping it.
+  const tailW = appState.tailText ? estimateTextWidth(appState.tailText, 14) : 0;
+  const requiredWidth = LINE_X2 + 54 + tailW + 40;
+  const totalWidth = Math.max(BASE_WIDTH, requiredWidth);
+  svg.setAttribute("viewBox", `0 0 ${totalWidth} ${SHEET_HEIGHT}`);
+
+  svg.appendChild(buildGrid(totalWidth));
+  svg.appendChild(buildJointIllustration(appState.joint));
+
+  const seamPt = getEffectiveSeam(appState.joint);
+  svg.appendChild(buildReferenceLine(!!appState.tailText, appState.tailText, appState.weld, LINE_X2, seamPt));
 
   const glyphCx = LINE_X1 + 70;
-  if (state.side === "arrow" || state.side === "double") {
-    svg.appendChild(buildGlyph(state.weld, glyphCx, 1, state.params));
+  if (appState.side === "arrow" || appState.side === "double") {
+    svg.appendChild(buildGlyph(appState.weld, glyphCx, 1, appState.params));
   }
-  if (state.side === "other" || state.side === "double") {
-    svg.appendChild(buildGlyph(state.weld, glyphCx, -1, state.params));
+  if (appState.side === "other" || appState.side === "double") {
+    svg.appendChild(buildGlyph(appState.weld, glyphCx, -1, appState.params));
   }
 
   // joint label near illustration
-  svg.appendChild(textEl(130, 330, JOINT_TYPES[state.joint].label, { anchor: "middle", size: 13, fill: "#9FB2D1", mono: true }));
+  svg.appendChild(textEl(130, 330, JOINT_TYPES[appState.joint].label, { anchor: "middle", size: 13, fill: "#9FB2D1", mono: true }));
 }
