@@ -10,7 +10,8 @@ const state = {
   side: "arrow",       // arrow | other | double
   showAdvanced: false,
   tailText: "",
-  params: {}
+  params: {},
+  selectedVariable: null
 };
 
 const STEP_COUNT = 4;
@@ -20,6 +21,9 @@ function initParams(weldKey) {
   const p = {};
   WELD_TYPES[weldKey].params.forEach(key => { p[key] = PARAM_DEFS[key].default; });
   state.params = p;
+  if (state.selectedVariable && !WELD_TYPES[weldKey].params.includes(state.selectedVariable)) {
+    state.selectedVariable = null;
+  }
 }
 initParams(state.weld);
 
@@ -72,6 +76,32 @@ function finalizeParam(key, inputEl) {
   state.params[key] = num;
   inputEl.value = num;
   renderVisual();
+}
+
+// Clicking or activating a variable label on the diagram jumps to the
+// Dimensions panel (switching to Freeform mode if needed), highlights the
+// matching field, and moves keyboard focus into it.
+function selectVariable(key) {
+  if (!PARAM_DEFS[key] || !WELD_TYPES[state.weld].params.includes(key)) return;
+  state.selectedVariable = key;
+  if (state.mode !== "freeform") {
+    setMode("freeform");
+  } else {
+    render();
+  }
+  const input = document.getElementById("p-" + key);
+  if (input) {
+    const group = input.closest(".field-group");
+    if (group && group.scrollIntoView) group.scrollIntoView({ behavior: "smooth", block: "center" });
+    input.focus();
+  }
+}
+
+// Focusing a label via keyboard (Tab) without activating it still surfaces
+// its description, so keyboard users get the same detail mouse users get on hover.
+function previewVariable(key) {
+  const def = PARAM_DEFS[key];
+  if (def) setFeedback(def.label + " \u2014 " + def.hint);
 }
 
 // ---------- Panel builders ----------
@@ -164,7 +194,7 @@ function buildParamsStep(container) {
     const def = PARAM_DEFS[key];
     const val = state.params[key];
     const group = document.createElement("div");
-    group.className = "field-group";
+    group.className = "field-group" + (state.selectedVariable === key ? " var-highlight" : "");
     group.innerHTML = `
       <label for="p-${key}">${def.label}</label>
       <div class="number-input-row">
