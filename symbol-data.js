@@ -36,18 +36,20 @@ const WELD_TYPES = {
   u:      { label: "U-Groove",       glyph: "u",      params: ["grooveAngle", "grooveRadius", "rootOpening", "rootFace", "weldDepth"],
             note: "Both members have a curved (radiused) face — reduces filler metal vs. a V-groove." },
   j:      { label: "J-Groove",       glyph: "j",      params: ["grooveAngle", "grooveRadius", "rootOpening", "rootFace", "weldDepth"],
-            note: "Only one member has a curved face — like a bevel groove, note the arrow break." }
+            note: "Only one member has a curved face — like a bevel groove, note the arrow break." },
+  flarebevel: { label: "Flare Bevel Groove", glyph: "flarebevel", params: ["grooveRadius", "weldDepth"],
+            note: "One flat member against a curved/round member (e.g. bar stock or pipe) — note the arrow break, same as bevel and J." }
 };
 
 // Which welds are valid (and which are "rare" / advanced-only) per joint type.
 const JOINT_TYPES = {
   butt:   { label: "Butt Joint",   welds: ["square", "v", "bevel", "u", "j"], advancedWelds: [],
             desc: "Two members in the same plane, edge to edge." },
-  tjoint: { label: "T-Joint",      welds: ["fillet", "bevel", "j"], advancedWelds: ["v", "u"],
+  tjoint: { label: "T-Joint",      welds: ["fillet", "bevel", "j"], advancedWelds: ["v", "u", "flarebevel"],
             desc: "One member perpendicular to another, forming a T." },
   lap:    { label: "Lap Joint",    welds: ["fillet"], advancedWelds: [],
             desc: "Two overlapping members." },
-  corner: { label: "Corner Joint", welds: ["fillet", "square", "v", "bevel", "j"], advancedWelds: ["u"],
+  corner: { label: "Corner Joint", welds: ["fillet", "square", "v", "bevel", "j", "flarebevel"], advancedWelds: ["u"],
             desc: "Two members meeting at an angle, typically 90°, at their edges." },
   edge:   { label: "Edge Joint",   welds: ["square", "v"], advancedWelds: [],
             desc: "Two parallel (or near-parallel) members joined along their edges." }
@@ -56,7 +58,7 @@ const JOINT_TYPES = {
 // Doubling is only meaningful for groove welds and fillets on joints where
 // weld metal can be placed from both sides of the reference line.
 const DOUBLE_ALLOWED = {
-  fillet: true, square: true, v: true, bevel: true, u: true, j: true
+  fillet: true, square: true, v: true, bevel: true, u: true, j: true, flarebevel: true
 };
 
 function getAvailableWelds(jointKey, showAdvanced) {
