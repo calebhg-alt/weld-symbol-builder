@@ -9,6 +9,7 @@ const state = {
   weld: "fillet",
   side: "arrow",       // arrow | other | double
   showAdvanced: false,
+  showDimensions: true,
   tailText: "",
   params: {},
   selectedVariable: null
@@ -39,6 +40,11 @@ function setMode(mode) {
   render();
 }
 
+function toggleDimensions(checked) {
+  state.showDimensions = checked;
+  renderVisual();
+}
+
 function stepNext() { if (state.step < STEP_COUNT - 1) { state.step++; render(); } }
 function stepBack() { if (state.step > 0) { state.step--; render(); } }
 
@@ -65,11 +71,18 @@ function toggleAdvanced(checked) {
 }
 function setTail(val) { state.tailText = val; renderVisual(); }
 function setParam(key, val) {
+  const def = PARAM_DEFS[key];
+  if (def && def.type === "select") {
+    state.params[key] = val;
+    renderVisual();
+    return;
+  }
   const num = parseFloat(val);
   if (!isNaN(num)) { state.params[key] = num; renderVisual(); }
 }
 function finalizeParam(key, inputEl) {
   const def = PARAM_DEFS[key];
+  if (def && def.type === "select") return; // selects have no free-typed value to clamp
   let num = parseFloat(inputEl.value);
   if (isNaN(num)) num = def.default;
   num = clamp(num, def.min, def.max);
@@ -195,19 +208,34 @@ function buildParamsStep(container) {
     const val = state.params[key];
     const group = document.createElement("div");
     group.className = "field-group" + (state.selectedVariable === key ? " var-highlight" : "");
-    group.innerHTML = `
-      <label for="p-${key}">${def.label}</label>
-      <div class="number-input-row">
-        <input type="number" id="p-${key}" min="${def.min}" max="${def.max}" step="${def.step}" value="${fmt(val)}">
-        <span class="unit-suffix">${def.unit}</span>
-      </div>
-      <div class="field-hint">${def.hint} Range: ${fmt(def.min)}\u2013${fmt(def.max)} ${def.unit}.</div>`;
-    fs.appendChild(group);
-    setTimeout(() => {
-      const inputEl = document.getElementById(`p-${key}`);
-      inputEl.oninput = (e) => setParam(key, e.target.value);
-      inputEl.onblur = (e) => finalizeParam(key, e.target);
-    }, 0);
+
+    if (def.type === "select") {
+      const optionsHtml = def.options.map(o =>
+        `<option value="${o.value}" ${val === o.value ? "selected" : ""}>${o.label}</option>`
+      ).join("");
+      group.innerHTML = `
+        <label for="p-${key}">${def.label}</label>
+        <select id="p-${key}">${optionsHtml}</select>
+        <div class="field-hint">${def.hint}</div>`;
+      fs.appendChild(group);
+      setTimeout(() => {
+        document.getElementById(`p-${key}`).onchange = (e) => setParam(key, e.target.value);
+      }, 0);
+    } else {
+      group.innerHTML = `
+        <label for="p-${key}">${def.label}</label>
+        <div class="number-input-row">
+          <input type="number" id="p-${key}" min="${def.min}" max="${def.max}" step="${def.step}" value="${fmt(val)}">
+          <span class="unit-suffix">${def.unit}</span>
+        </div>
+        <div class="field-hint">${def.hint} Range: ${fmt(def.min)}\u2013${fmt(def.max)} ${def.unit}.</div>`;
+      fs.appendChild(group);
+      setTimeout(() => {
+        const inputEl = document.getElementById(`p-${key}`);
+        inputEl.oninput = (e) => setParam(key, e.target.value);
+        inputEl.onblur = (e) => finalizeParam(key, e.target);
+      }, 0);
+    }
   });
   container.appendChild(fs);
   setFeedback(state.weld === "square"
@@ -259,5 +287,7 @@ function fmt(n) {
   if (n === undefined || n === null) return "";
   return (Math.round(n * 10000) / 10000).toString().replace(/^0\./, ".");
 }
+
+document.getElementById("toggle-dims").onchange = (e) => toggleDimensions(e.target.checked);
 
 render();
