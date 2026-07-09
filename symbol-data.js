@@ -16,28 +16,53 @@ const PARAM_DEFS = {
                   hint: "Gap left between members at the root before welding." },
   grooveAngle:  { label: "Groove Angle",    unit: "°",  default: 45,    min: 5,      max: 90,   step: 5,
                   hint: "Total included angle of the groove opening." },
-  rootFace:     { label: "Root Face",       unit: "in", default: 0.0625,min: 0,      max: 0.25, step: 0.0625,
-                  hint: "Flat (un-beveled) portion of the joint face at the root." },
-  weldDepth:    { label: "Weld Depth (S)",  unit: "in", default: 0,     min: 0,      max: 1.5,  step: 0.0625,
-                  hint: "Depth of weld metal. Leave at 0 for complete joint penetration (CJP)." },
+  grooveSize:   { label: "Groove Weld Size",unit: "in", default: 0.25,  min: 0,      max: 1.5,  step: 0.0625,
+                  hint: "Depth of the groove weld (S) \u2014 the position labeled S(E) on an AWS symbol. Shown to the left of the symbol." },
+  weldDepth:    { label: "Effective Throat (E)", unit: "in", default: 0, min: 0,      max: 1.5,  step: 0.0625,
+                  hint: "Effective throat \u2014 the (E) in S(E). Leave at 0 for complete joint penetration (CJP)." },
   grooveRadius: { label: "Groove Radius",   unit: "in", default: 0.25,  min: 0.125,  max: 0.75, step: 0.0625,
-                  hint: "Radius of the curved groove face (U- and J-grooves only)." }
+                  hint: "Radius of the curved groove face (U- and J-grooves only)." },
+  contourSymbol: { label: "Contour Symbol", type: "select", default: "none",
+                  options: [
+                    { value: "none", label: "None" },
+                    { value: "flush", label: "Flush" },
+                    { value: "convex", label: "Convex" },
+                    { value: "concave", label: "Concave" }
+                  ],
+                  hint: "Shape of the finished weld face. Sits directly above the weld symbol." },
+  finishSymbol: { label: "Finish Symbol", type: "select", default: "none",
+                  options: [
+                    { value: "none", label: "None" },
+                    { value: "C", label: "C \u2014 Chipping" },
+                    { value: "G", label: "G \u2014 Grinding" },
+                    { value: "M", label: "M \u2014 Machining" },
+                    { value: "R", label: "R \u2014 Rolling" },
+                    { value: "H", label: "H \u2014 Hammering" }
+                  ],
+                  hint: "Method used to obtain the contour. Sits above the contour symbol \u2014 the outermost element on the symbol." }
 };
 
 const WELD_TYPES = {
-  fillet: { label: "Fillet Weld",    glyph: "fillet", params: ["size", "length", "pitch"],
+  fillet: { label: "Fillet Weld",    glyph: "fillet",
+            params: ["contourSymbol", "finishSymbol", "size", "length", "pitch"],
             note: "Most common weld on T- and lap-joints. Triangular symbol, size always shown to its left." },
-  square: { label: "Square Groove",  glyph: "square", params: ["rootOpening"],
+  square: { label: "Square Groove",  glyph: "square",
+            params: ["rootOpening", "contourSymbol", "finishSymbol"],
             note: "Used on thin material with no beveled edge prep — just a root gap." },
-  v:      { label: "V-Groove",       glyph: "v",      params: ["grooveAngle", "rootOpening", "rootFace", "weldDepth"],
+  v:      { label: "V-Groove",       glyph: "v",
+            params: ["rootOpening", "grooveAngle", "contourSymbol", "finishSymbol", "grooveSize", "weldDepth"],
             note: "Both members beveled symmetrically, forming a V." },
-  bevel:  { label: "Bevel Groove",   glyph: "bevel",  params: ["grooveAngle", "rootOpening", "rootFace", "weldDepth"],
+  bevel:  { label: "Bevel Groove",   glyph: "bevel",
+            params: ["rootOpening", "grooveAngle", "contourSymbol", "finishSymbol", "grooveSize", "weldDepth"],
             note: "Only one member is beveled — note the perpendicular break in the arrow pointing to that member." },
-  u:      { label: "U-Groove",       glyph: "u",      params: ["grooveAngle", "grooveRadius", "rootOpening", "rootFace", "weldDepth"],
+  u:      { label: "U-Groove",       glyph: "u",
+            params: ["rootOpening", "grooveAngle", "contourSymbol", "finishSymbol", "grooveSize", "weldDepth", "grooveRadius"],
             note: "Both members have a curved (radiused) face — reduces filler metal vs. a V-groove." },
-  j:      { label: "J-Groove",       glyph: "j",      params: ["grooveAngle", "grooveRadius", "rootOpening", "rootFace", "weldDepth"],
+  j:      { label: "J-Groove",       glyph: "j",
+            params: ["rootOpening", "grooveAngle", "contourSymbol", "finishSymbol", "grooveSize", "weldDepth", "grooveRadius"],
             note: "Only one member has a curved face — like a bevel groove, note the arrow break." },
-  flarebevel: { label: "Flare Bevel Groove", glyph: "flarebevel", params: ["grooveRadius", "weldDepth"],
+  flarebevel: { label: "Flare Bevel Groove", glyph: "flarebevel",
+            params: ["contourSymbol", "finishSymbol", "grooveSize", "weldDepth", "grooveRadius"],
             note: "One flat member against a curved/round member (e.g. bar stock or pipe) — note the arrow break, same as bevel and J." }
 };
 
