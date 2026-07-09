@@ -12,7 +12,9 @@ const state = {
   showDimensions: true,
   tailText: "",
   params: {},
-  selectedVariable: null
+  selectedVariable: null,
+  arrowOverrides: {},   // jointKey -> {x, y} calibrated arrow target, overrides the default
+  calibrating: false
 };
 
 const STEP_COUNT = 4;
@@ -43,6 +45,35 @@ function setMode(mode) {
 function toggleDimensions(checked) {
   state.showDimensions = checked;
   renderVisual();
+}
+
+// Calibration lets the person click directly on the joint diagram to set
+// exactly where the arrow should point, instead of relying on a built-in
+// guess. This also doubles as "change which side/member the arrow targets" —
+// clicking the other member of the joint moves the arrow there.
+function toggleCalibrate(on) {
+  state.calibrating = on;
+  renderVisual();
+}
+function setArrowOverride(x, y) {
+  state.arrowOverrides[state.joint] = { x: Math.round(x), y: Math.round(y) };
+  renderVisual();
+}
+function resetArrowOverride() {
+  delete state.arrowOverrides[state.joint];
+  renderVisual();
+}
+function handleSvgClick(evt) {
+  if (!state.calibrating) return;
+  const svg = document.getElementById("symbol-svg");
+  if (!svg.createSVGPoint || !svg.getScreenCTM) return;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return;
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  const svgPt = pt.matrixTransform(ctm.inverse());
+  setArrowOverride(svgPt.x, svgPt.y);
 }
 
 function stepNext() { if (state.step < STEP_COUNT - 1) { state.step++; render(); } }
@@ -186,13 +217,31 @@ function buildSideStep(container) {
   fs.appendChild(toggle);
   container.appendChild(fs);
 
+  const fsArrow = document.createElement("fieldset");
+  fsArrow.innerHTML = `<legend>Arrow position on joint</legend>`;
+  const hasOverride = !!state.arrowOverrides[state.joint];
+  const arrowControls = document.createElement("div");
+  arrowControls.className = "arrow-calibrate";
+  arrowControls.innerHTML = `
+    <button type="button" id="btn-calibrate" class="${state.calibrating ? "active" : ""}">${state.calibrating ? "Click the diagram to set the arrow\u2026" : "Set arrow position"}</button>
+    <button type="button" id="btn-reset-arrow" ${hasOverride ? "" : "disabled"}>Reset to default</button>
+    <div class="field-hint">
+      ${state.calibrating
+        ? "Click anywhere on the joint diagram \u2014 including either member \u2014 to point the arrow there."
+        : (hasOverride ? "Arrow position has been customized for this joint." : "Uses the default root location for this joint.")}
+    </div>`;
+  fsArrow.appendChild(arrowControls);
+  container.appendChild(fsArrow);
+  document.getElementById("btn-calibrate").onclick = () => toggleCalibrate(!state.calibrating);
+  document.getElementById("btn-reset-arrow").onclick = () => resetArrowOverride();
+
   const fs2 = document.createElement("fieldset");
   fs2.innerHTML = `<legend>Tail (optional)</legend>`;
   const tailGroup = document.createElement("div");
   tailGroup.className = "field-group tail-input";
   tailGroup.innerHTML = `<label for="tail-text">Process / spec note</label>
     <input type="text" id="tail-text" placeholder="e.g. FCAW, D1.1" value="${state.tailText}">
-    <div class="field-hint">Shown as an open V at the end of the reference line. Leave blank to omit the tail entirely.</div>`;
+    <div class="field-hint">Shown as an open V at the end of the reference line. The diagram widens automatically for longer notes. Leave blank to omit the tail entirely.</div>`;
   fs2.appendChild(tailGroup);
   container.appendChild(fs2);
   document.getElementById("tail-text").oninput = (e) => setTail(e.target.value);
@@ -254,6 +303,7 @@ function renderVisual() {
   document.getElementById("tb-joint").textContent = JOINT_TYPES[state.joint].label;
   document.getElementById("tb-weld").textContent = WELD_TYPES[state.weld].label;
   document.getElementById("tb-side").textContent = { arrow: "Arrow side", other: "Other side", double: "Double" }[state.side];
+  document.querySelector(".sheet").classList.toggle("calibrating", state.calibrating);
   renderSymbol(document.getElementById("symbol-svg"), state);
 }
 
@@ -289,5 +339,6 @@ function fmt(n) {
 }
 
 document.getElementById("toggle-dims").onchange = (e) => toggleDimensions(e.target.checked);
+document.getElementById("symbol-svg").addEventListener("click", handleSvgClick);
 
 render();
