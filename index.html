@@ -159,6 +159,25 @@
     color:var(--steel);
     min-width:16px;
   }
+  .field-group.var-highlight{
+    outline:2.5px solid var(--focus);
+    outline-offset:6px;
+    border-radius:6px;
+    background:#EEF3FB;
+    padding:8px;
+    margin:-8px -8px 14px -8px;
+  }
+  #symbol-svg .var-label{cursor:pointer;}
+  #symbol-svg .var-label text{transition:fill 0.1s ease;}
+  #symbol-svg .var-label:hover text,
+  #symbol-svg .var-label:focus text{
+    fill:#F2C744;
+    text-decoration:underline;
+  }
+  #symbol-svg .var-label-selected text{
+    text-decoration:underline;
+    font-weight:700;
+  }
 
   .choice-grid{
     display:grid;
