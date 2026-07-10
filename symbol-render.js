@@ -601,6 +601,60 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo, interactive, baseY) {
     return g;
   }
 
+  if (weldKey === "plugslot") {
+    // A rectangle whose top edge sits on the reference line — fills a round
+    // (plug) or elongated (slot) hole in the near member to fuse it to the
+    // one beneath.
+    const w = 30, h = 24;
+    g.appendChild(el("rect", { x: cx - w / 2, y: dir > 0 ? lineY : lineY - h, width: w, height: h, fill: "none", stroke: C, "stroke-width": 2.5 }));
+    addLabel("grooveSize", leftX, lineY, fmt(params.grooveSize), { anchor: "end", fill: C, size: 12 });
+    addLabel("grooveAngle", cx, lineY + dir * (h + 16), `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
+    addLabel("rootOpening", cx, lineY + dir * (h + 34), fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addContourFinishIfShown(cx, dir, C, lineY + dir * (h + 52), lineY + dir * (h + 70));
+    if (params.length !== undefined && params.pitch !== undefined) {
+      const rightX = cx + w / 2 + 24;
+      addLabel("length", rightX, lineY - dir * 8, fmt(params.length), { anchor: "middle", fill: C, size: 13 });
+      addPlain(rightX + 24, lineY - dir * 8, "-", { anchor: "middle", fill: C, size: 13 });
+      addLabel("pitch", rightX + 48, lineY - dir * 8, fmt(params.pitch), { anchor: "middle", fill: C, size: 13 });
+    }
+    addLabel("weldCount", cx, lineY + dir * (h + 88), `(${fmt(params.weldCount)})`, { anchor: "middle", fill: C, size: 12 });
+    return g;
+  }
+
+  if (weldKey === "spot") {
+    // A circle, straddling the reference line — a localized fusion spot
+    // (e.g. resistance spot welding) through overlapping sheets.
+    const r = 13;
+    const cy = lineY + dir * r;
+    g.appendChild(el("circle", { cx: cx, cy: cy, r: r, fill: "none", stroke: C, "stroke-width": 2.5 }));
+    addLabel("grooveSize", leftX, lineY, fmt(params.grooveSize), { anchor: "end", fill: C, size: 12 });
+    if (params.pitch !== undefined) {
+      addLabel("pitch", cx + r + 30, lineY - dir * 8, fmt(params.pitch), { anchor: "middle", fill: C, size: 13 });
+    }
+    addContourFinishIfShown(cx, dir, C, lineY + dir * (2 * r + 20), lineY + dir * (2 * r + 38));
+    addLabel("weldCount", cx, lineY + dir * (2 * r + 56), `(${fmt(params.weldCount)})`, { anchor: "middle", fill: C, size: 12 });
+    return g;
+  }
+
+  if (weldKey === "seam") {
+    // A circle with the reference line's direction carried through its
+    // center — a continuous line of fusion (e.g. resistance seam welding).
+    const r = 13;
+    const cy = lineY + dir * r;
+    g.appendChild(el("circle", { cx: cx, cy: cy, r: r, fill: "none", stroke: C, "stroke-width": 2.5 }));
+    g.appendChild(el("line", { x1: cx - r - 10, y1: cy, x2: cx + r + 10, y2: cy, stroke: C, "stroke-width": 2.5 }));
+    addLabel("grooveSize", leftX, lineY, fmt(params.grooveSize), { anchor: "end", fill: C, size: 12 });
+    if (params.length !== undefined && params.pitch !== undefined) {
+      const rightX = cx + r + 30;
+      addLabel("length", rightX, lineY - dir * 8, fmt(params.length), { anchor: "middle", fill: C, size: 13 });
+      addPlain(rightX + 24, lineY - dir * 8, "-", { anchor: "middle", fill: C, size: 13 });
+      addLabel("pitch", rightX + 48, lineY - dir * 8, fmt(params.pitch), { anchor: "middle", fill: C, size: 13 });
+    }
+    addContourFinishIfShown(cx, dir, C, lineY + dir * (2 * r + 20), lineY + dir * (2 * r + 38));
+    addLabel("weldCount", cx, lineY + dir * (2 * r + 56), `(${fmt(params.weldCount)})`, { anchor: "middle", fill: C, size: 12 });
+    return g;
+  }
+
   return g;
 }
 
