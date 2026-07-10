@@ -38,6 +38,25 @@ function estimateTextWidth(str, fontSize) {
   return (str || "").length * fontSize * 0.62;
 }
 
+// Wraps text to a max pixel width by word, falling back to a hard character
+// split for a single word that's wider than the line by itself.
+function wrapText(str, maxWidth, fontSize) {
+  const words = (str || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = "";
+  words.forEach(word => {
+    const test = current ? current + " " + word : word;
+    if (estimateTextWidth(test, fontSize) > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  });
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
+}
+
 // ---------- Background blueprint grid ----------
 function buildGrid(width) {
   const g = el("g", { "aria-hidden": "true" });
@@ -166,7 +185,16 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt) {
   if (hasTail && tailText) {
     g.appendChild(el("line", { x1: lineX2, y1: LINE_Y, x2: lineX2 + 46, y2: LINE_Y - 10, stroke: "#E8EEF5", "stroke-width": 2 }));
     g.appendChild(el("line", { x1: lineX2, y1: LINE_Y, x2: lineX2 + 46, y2: LINE_Y + 10, stroke: "#E8EEF5", "stroke-width": 2 }));
-    g.appendChild(textEl(lineX2 + 54, LINE_Y + 5, tailText, { size: 14, weight: 500 }));
+    const textStartX = lineX2 + 54;
+    const maxLineWidth = BASE_WIDTH - 24 - textStartX;
+    const lines = wrapText(tailText, maxLineWidth, 14);
+    const lineHeight = 18;
+    // Center the stacked lines vertically on the reference line, like a
+    // multi-line caption, rather than always starting from the line itself.
+    const startY = LINE_Y + 5 - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((line, i) => {
+      g.appendChild(textEl(textStartX, startY + i * lineHeight, line, { size: 14, weight: 500 }));
+    });
   }
   return g;
 }
@@ -182,7 +210,7 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
   const lineY = LINE_Y;
   const DEPTH = 50;
   const GAP = 12;
-  const leftX = cx - 90;
+  const leftX = cx - 80;
   const C = "#E8EEF5"; // every glyph now matches the reference line color
 
   // When dimensions are hidden, every callout becomes a no-op — only the
@@ -206,16 +234,15 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
   // the dir direction), never centered exactly on the line.
   function addSizeDepthPair(x) {
     const y = lineY + dir * 13;
-    addLabel("grooveSize", x - 26, y, fmt(params.grooveSize), { anchor: "middle", fill: C, size: 12 });
-    addPlain(x - 8, y, "(", { anchor: "middle", fill: C, size: 12 });
-    addLabel("weldDepth", x + 8, y, fmt(params.weldDepth), { anchor: "middle", fill: C, size: 12 });
-    addPlain(x + 24, y, ")", { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveSize", x - 20, y, fmt(params.grooveSize), { anchor: "middle", fill: C, size: 11 });
+    addPlain(x - 6, y, "(", { anchor: "middle", fill: C, size: 11 });
+    addLabel("weldDepth", x + 6, y, fmt(params.weldDepth), { anchor: "middle", fill: C, size: 11 });
+    addPlain(x + 20, y, ")", { anchor: "middle", fill: C, size: 11 });
   }
 
   if (weldKey === "fillet") {
     const sizePx = 18 + (params.size / 1.5) * 55;
     const offsets = (repeatInfo && repeatInfo.offsets) ? repeatInfo.offsets : [0];
-    const spacing = 56;
     offsets.forEach(off => {
       g.appendChild(el("polygon", {
         points: `${cx + off - 24},${lineY} ${cx + off - 24},${lineY + dir * sizePx} ${cx + off + 24},${lineY}`,
@@ -251,22 +278,23 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
       points: `${cx - halfW},${lineY + dir * DEPTH} ${cx},${lineY} ${cx + halfW},${lineY + dir * DEPTH}`,
       fill: "none", stroke: C, "stroke-width": 2.5
     }));
-    addLabel("rootOpening", cx, lineY + dir * 18, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", cx, lineY + dir * 36, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
-    addContourFinishIfShown(cx, dir, C, lineY + dir * 54, lineY + dir * 74);
+    addLabel("rootOpening", cx, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", cx, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
+    addContourFinishIfShown(cx, dir, C, lineY + dir * 68, lineY + dir * 92);
     addSizeDepthPair(leftX);
     return g;
   }
 
   if (weldKey === "bevel") {
     const spread = 50;
+    const midX = cx + spread / 2; // shape spans cx to cx+spread; center on its actual midpoint, not the vertex
     g.appendChild(el("polyline", {
       points: `${cx},${lineY + dir * DEPTH} ${cx},${lineY} ${cx + spread},${lineY + dir * DEPTH}`,
       fill: "none", stroke: C, "stroke-width": 2.5
     }));
-    addLabel("rootOpening", cx + 4, lineY + dir * 18, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", cx + 4, lineY + dir * 36, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
-    addContourFinishIfShown(cx + 4, dir, C, lineY + dir * 54, lineY + dir * 74);
+    addLabel("rootOpening", midX, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", midX, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
+    addContourFinishIfShown(midX, dir, C, lineY + dir * 68, lineY + dir * 92);
     addSizeDepthPair(leftX);
     return g;
   }
@@ -278,37 +306,39 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
     g.appendChild(el("line", { x1: cx, y1: lineY, x2: cx, y2: peakY, stroke: C, "stroke-width": 2.5 }));
     const path = `M ${cx - halfW},${openY} Q ${cx - halfW},${peakY} ${cx},${peakY} Q ${cx + halfW},${peakY} ${cx + halfW},${openY}`;
     g.appendChild(el("path", { d: path, fill: "none", stroke: C, "stroke-width": 2.5 }));
-    addLabel("rootOpening", cx, lineY + dir * 18, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", cx, lineY + dir * 36, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
-    addContourFinishIfShown(cx, dir, C, lineY + dir * 54, lineY + dir * 74);
+    addLabel("rootOpening", cx, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", cx, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
+    addContourFinishIfShown(cx, dir, C, lineY + dir * 68, lineY + dir * 92);
     addSizeDepthPair(leftX);
-    addLabel("grooveRadius", cx, lineY + dir * (DEPTH + 20), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
+    addLabel("grooveRadius", cx, lineY + dir * (DEPTH + 24), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
     return g;
   }
 
   if (weldKey === "j") {
     const spread = 38;
+    const midX = cx + spread / 2; // shape spans cx to cx+spread; center on its actual midpoint
     const curveStartY = lineY + dir * GAP;
     const openY = lineY + dir * DEPTH;
     g.appendChild(el("line", { x1: cx, y1: lineY, x2: cx, y2: openY, stroke: C, "stroke-width": 2.5 }));
     const jPath = `M ${cx},${curveStartY} Q ${cx + spread},${curveStartY} ${cx + spread},${openY}`;
     g.appendChild(el("path", { d: jPath, fill: "none", stroke: C, "stroke-width": 2.5 }));
-    addLabel("rootOpening", cx + spread, lineY + dir * 18, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", cx + spread, lineY + dir * 36, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
-    addContourFinishIfShown(cx + spread, dir, C, lineY + dir * 54, lineY + dir * 74);
+    addLabel("rootOpening", midX, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", midX, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
+    addContourFinishIfShown(midX, dir, C, lineY + dir * 68, lineY + dir * 92);
     addSizeDepthPair(leftX);
-    addLabel("grooveRadius", cx + spread, lineY + dir * (DEPTH + 20), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
+    addLabel("grooveRadius", midX, lineY + dir * (DEPTH + 24), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
     return g;
   }
 
   if (weldKey === "flarebevel") {
+    const midX = cx + 12; // shape spans roughly cx-16 to cx+40; center on its actual midpoint
     const openY = lineY + dir * DEPTH;
     const stemPeakY = lineY + dir * GAP;
     g.appendChild(el("line", { x1: cx - 16, y1: lineY, x2: cx - 16, y2: openY, stroke: C, "stroke-width": 2.5 }));
     g.appendChild(el("line", { x1: cx + 13, y1: lineY, x2: cx + 13, y2: stemPeakY, stroke: C, "stroke-width": 2.5 }));
     const path = `M ${cx + 13},${stemPeakY} Q ${cx + 13},${openY} ${cx + 40},${openY}`;
     g.appendChild(el("path", { d: path, fill: "none", stroke: C, "stroke-width": 2.5 }));
-    addContourFinishIfShown(cx, dir, C, lineY + dir * 18, lineY + dir * 38);
+    addContourFinishIfShown(midX, dir, C, lineY + dir * 20, lineY + dir * 44);
     addSizeDepthPair(leftX);
     addLabel("grooveRadius", cx, lineY + dir * (DEPTH + 20), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 12 });
     return g;
@@ -436,14 +466,14 @@ function renderSymbol(svg, appState) {
   const seamPt = getEffectiveSeam(appState.joint);
   svg.appendChild(buildReferenceLine(!!appState.tailText, appState.tailText, appState.weld, lineX2, seamPt));
 
-  const glyphCx = LINE_X1 + 70;
+  const glyphCx = LINE_X1 + 130;
   // Chain vs. staggered only applies to a double-sided intermittent fillet —
   // chain repeats the same spacing on both sides, staggered offsets the
   // other side by half the spacing so segments don't align.
   let arrowRepeat = null, otherRepeat = null;
   if (appState.weld === "fillet" && appState.side === "double" &&
       appState.params.length !== undefined && appState.params.pitch !== undefined) {
-    const spacing = 56;
+    const spacing = 48;
     arrowRepeat = { offsets: [-spacing, 0, spacing] };
     const shift = appState.chainStagger === "staggered" ? spacing / 2 : 0;
     otherRepeat = { offsets: [-spacing + shift, shift, spacing + shift] };
