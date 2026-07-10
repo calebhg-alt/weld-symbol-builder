@@ -196,12 +196,11 @@ function segmentHitsPlate(x1, y1, x2, y2, rects, pad) {
 
 // Builds an arrow path from the reference line to the joint's root that
 // never cuts across a plate. Tries the direct line first; if that's
-// blocked, generates a handful of candidate one-elbow routes (above, below,
-// left, right of the joint, plus diagonal corners) and picks whichever
-// valid one is SHORTEST. Preferring the shortest valid route is what keeps
-// the arrow from taking a long way around that ends up running flush along
-// a plate's edge for an extended stretch — technically "outside" the plate,
-// but visually indistinguishable from overlapping it.
+// blocked, tries approaching from BELOW the joint first (via a side corner
+// if a direct below approach is blocked) since that reads most clearly as
+// "never crossing the material" — only falls back to above/side routes when
+// no below approach is geometrically possible (e.g. a T-joint or corner
+// joint target where the base plate itself sits below, blocking that path).
 function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   const allRects = getJointPlates(jointKey);
   if (!allRects.length) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
@@ -226,9 +225,10 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
     }
     return true;
   }
-
-  const direct = [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
-  if (clear(ax1, ay1, seamX, seamY)) return direct;
+  function pathClear(pts) {
+    for (let i = 0; i < pts.length - 1; i++) if (!clear(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y)) return false;
+    return true;
+  }
 
   const minX = Math.min(...allRects.map(r => r.x));
   const maxX = Math.max(...allRects.map(r => r.x + r.w));
@@ -236,17 +236,29 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   const maxY = Math.max(...allRects.map(r => r.y + r.h));
   const OUT = 22;
 
-  const waypoints = [
-    { x: seamX, y: minY - OUT },       // straight above the target
-    { x: seamX, y: maxY + OUT },       // straight below the target
-    { x: minX - OUT, y: seamY },       // straight left of the target
-    { x: maxX + OUT, y: seamY },       // straight right of the target
-    { x: minX - OUT, y: minY - OUT },  // top-left corner of the bounding box
-    { x: maxX + OUT, y: minY - OUT },  // top-right corner
-    { x: minX - OUT, y: maxY + OUT },  // bottom-left corner
-    { x: maxX + OUT, y: maxY + OUT }   // bottom-right corner
+  // 1. Prefer approaching from below, trying the direct-below line first,
+  // then via whichever side corner is closer to the start point.
+  const belowCandidates = [
+    [{ x: ax1, y: ay1 }, { x: seamX, y: maxY + OUT }, { x: seamX, y: seamY }],
+    [{ x: ax1, y: ay1 }, { x: maxX + OUT, y: maxY + OUT }, { x: seamX, y: maxY + OUT }, { x: seamX, y: seamY }],
+    [{ x: ax1, y: ay1 }, { x: minX - OUT, y: maxY + OUT }, { x: seamX, y: maxY + OUT }, { x: seamX, y: seamY }]
   ];
+  for (const cand of belowCandidates) {
+    if (pathClear(cand)) return cand;
+  }
 
+  // 2. Direct line, if a below approach genuinely isn't possible.
+  if (clear(ax1, ay1, seamX, seamY)) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
+
+  // 3. Above/side one-elbow routes, picking whichever has the shortest
+  // final approach segment (keeps it from hugging a plate edge for long).
+  const waypoints = [
+    { x: seamX, y: minY - OUT },
+    { x: minX - OUT, y: seamY },
+    { x: maxX + OUT, y: seamY },
+    { x: minX - OUT, y: minY - OUT },
+    { x: maxX + OUT, y: minY - OUT }
+  ];
   let best = null, bestFinalLen = Infinity;
   waypoints.forEach(wp => {
     if (clear(ax1, ay1, wp.x, wp.y) && clear(wp.x, wp.y, seamX, seamY)) {
