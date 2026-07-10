@@ -130,8 +130,11 @@ function jointSeamPoint(jointKey) {
     case "tjoint": return { x: cx - 12, y: cy + 10 };
     // Root = the edge of the top plate, at the surface of the plate beneath it.
     case "lap": return { x: cx + 10, y: cy + 16 };
-    // Root = the outside vertex where the base plate's edge meets the upright.
-    case "corner": return { x: cx + 10, y: cy - 10 };
+    // Root = the outside vertex where the base plate's edge meets the upright —
+    // using the upright's own outer edge (not a point inset from it), since a
+    // point between the two edges falls inside the upright's bounding box
+    // where the two plates intentionally overlap to look visually joined.
+    case "corner": return { x: cx + 20, y: cy - 10 };
     // Root = the aligned edges of the two parallel plates.
     case "edge": return { x: cx + 60, y: cy - 9 };
     default: return { x: cx, y: cy };
@@ -150,7 +153,7 @@ function jointFacePoints(jointKey) {
     case "butt": return [{ x: cx, y: cy }, { x: cx, y: cy }]; // shared gap; both plates meet at the same root
     case "tjoint": return [{ x: cx - 12, y: cy + 10 }, { x: cx + 12, y: cy + 10 }]; // upright's near vs. far face
     case "lap": return [{ x: cx + 10, y: cy + 16 }, { x: cx - 10, y: cy + 16 }]; // top plate's edge vs. bottom plate's edge
-    case "corner": return [{ x: cx + 10, y: cy - 10 }, { x: cx - 2, y: cy - 10 }]; // base's edge vs. upright's near face
+    case "corner": return [{ x: cx + 20, y: cy - 10 }, { x: cx - 2, y: cy - 10 }]; // base's outer edge vs. upright's near face
     case "edge": return [{ x: cx + 60, y: cy - 12 }, { x: cx + 60, y: cy - 6 }]; // top plate side vs. bottom plate side
     default: return [{ x: cx, y: cy }, { x: cx, y: cy }];
   }
@@ -176,14 +179,20 @@ function getEffectiveSeam(jointKey) {
 // any plate rect (a small inset avoids flagging the segment for merely
 // touching a plate's edge, which is expected — the arrow is SUPPOSED to
 // reach the joint, just not cut across solid material to get there).
-function segmentHitsPlate(x1, y1, x2, y2, rects) {
-  const samples = 20;
+// pad > 0 expands the plate outward before testing (stricter — flags the
+// segment for merely coming close, used to keep real clearance from plates
+// the arrow ISN'T targeting). pad < 0 shrinks the plate inward (lenient —
+// only flags genuine deep penetration, used for the plate the arrow IS
+// heading toward, since approaching it closely is the whole point).
+function segmentHitsPlate(x1, y1, x2, y2, rects, pad) {
+  pad = pad === undefined ? -2 : pad;
+  const samples = 100;
   for (let i = 1; i < samples; i++) {
     const t = i / samples;
     const x = x1 + (x2 - x1) * t;
     const y = y1 + (y2 - y1) * t;
     for (const r of rects) {
-      if (x > r.x + 2 && x < r.x + r.w - 2 && y > r.y + 2 && y < r.y + r.h - 2) return true;
+      if (x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad) return true;
     }
   }
   return false;
@@ -197,18 +206,42 @@ function segmentHitsPlate(x1, y1, x2, y2, rects) {
 // Runs every time the arrow is drawn, so a calibrated (dragged) arrow
 // re-routes automatically rather than needing a manual fix.
 function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
-  const rects = getJointPlates(jointKey);
-  if (!rects.length || !segmentHitsPlate(ax1, ay1, seamX, seamY, rects)) {
+  const allRects = getJointPlates(jointKey);
+  if (!allRects.length) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
+
+  // The plate nearest the target is expected to be approached closely —
+  // that's the whole point of a root location — so it's excluded from the
+  // wider-margin check. Every OTHER plate still needs real clearance,
+  // otherwise a "safe" route can end up running flush along a neighboring
+  // plate's edge, which is technically outside it but visually reads as
+  // overlapping (especially with the plate's own stroke width).
+  let nearestIdx = 0, nearestDist = Infinity;
+  allRects.forEach((r, i) => {
+    const cx = Math.max(r.x, Math.min(seamX, r.x + r.w));
+    const cy = Math.max(r.y, Math.min(seamY, r.y + r.h));
+    const d = Math.hypot(seamX - cx, seamY - cy);
+    if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+  });
+  const targetRect = [allRects[nearestIdx]];
+  const otherRects = allRects.filter((_, i) => i !== nearestIdx);
+  const CLEARANCE = 8; // expand other plates outward by this much when checking
+
+  function pathIsClear(x1, y1, x2, y2) {
+    return !segmentHitsPlate(x1, y1, x2, y2, otherRects, CLEARANCE) &&
+           !segmentHitsPlate(x1, y1, x2, y2, targetRect, -2);
+  }
+
+  if (pathIsClear(ax1, ay1, seamX, seamY)) {
     return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
   }
-  const minY = Math.min(...rects.map(r => r.y));
-  const maxY = Math.max(...rects.map(r => r.y + r.h));
-  const candidates = [minY - 18, maxY + 18]; // try routing above, then below
+  const minY = Math.min(...allRects.map(r => r.y));
+  const maxY = Math.max(...allRects.map(r => r.y + r.h));
+  const candidates = [minY - 20, maxY + 20]; // try routing above, then below
   for (const safeY of candidates) {
     for (let dx = 0; dx <= 100; dx += 8) {
       for (const sign of [1, -1]) {
         const ex = seamX + sign * dx;
-        if (!segmentHitsPlate(ax1, ay1, ex, safeY, rects) && !segmentHitsPlate(ex, safeY, seamX, seamY, rects)) {
+        if (!segmentHitsPlate(ax1, ay1, ex, safeY, allRects, CLEARANCE) && pathIsClear(ex, safeY, seamX, seamY)) {
           return [{ x: ax1, y: ay1 }, { x: ex, y: safeY }, { x: seamX, y: seamY }];
         }
       }
@@ -216,11 +249,12 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   }
   // Fallback: route around the bounding box's corner via two elbows — clears
   // the top, then approaches the target from whichever side is closer.
-  const minX = Math.min(...rects.map(r => r.x));
-  const maxX = Math.max(...rects.map(r => r.x + r.w));
-  const cornerX = seamX <= (minX + maxX) / 2 ? minX - 18 : maxX + 18;
-  return [{ x: ax1, y: ay1 }, { x: cornerX, y: minY - 18 }, { x: cornerX, y: seamY }, { x: seamX, y: seamY }];
+  const minX = Math.min(...allRects.map(r => r.x));
+  const maxX = Math.max(...allRects.map(r => r.x + r.w));
+  const cornerX = seamX <= (minX + maxX) / 2 ? minX - 20 : maxX + 20;
+  return [{ x: ax1, y: ay1 }, { x: cornerX, y: minY - 20 }, { x: cornerX, y: seamY }, { x: seamX, y: seamY }];
 }
+
 
 // ---------- Reference line, arrow, tail ----------
 function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey) {
