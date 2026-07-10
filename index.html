@@ -109,6 +109,72 @@
   }
   .dims-toggle input{accent-color:var(--red);}
 
+  .lines-panel{
+    margin-bottom:16px;
+    padding:10px;
+    background:var(--paper);
+    border-radius:6px;
+    border:1px solid var(--steel-light);
+  }
+  .lines-panel-title{
+    font-family:'IBM Plex Sans Condensed', sans-serif;
+    font-weight:700;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--navy);
+    margin-bottom:8px;
+  }
+  .lines-list{display:flex; flex-direction:column; gap:6px;}
+  .line-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .line-row button.line-select{
+    flex:1;
+    text-align:left;
+    padding:7px 10px;
+    border-radius:5px;
+    border:1.5px solid var(--steel-light);
+    background:white;
+    color:var(--ink);
+    font-size:12.5px;
+    font-weight:500;
+    cursor:pointer;
+  }
+  .line-row button.line-select.active{
+    border-color:var(--red);
+    background:#FBEDEC;
+    color:var(--red);
+    font-weight:600;
+  }
+  .line-row button.line-remove{
+    width:26px;
+    height:26px;
+    border-radius:5px;
+    border:1.5px solid var(--steel-light);
+    background:white;
+    color:var(--steel);
+    cursor:pointer;
+    font-size:14px;
+    line-height:1;
+  }
+  .line-row button.line-remove:hover{background:#FBEDEC; color:var(--red); border-color:var(--red);}
+  .btn-add-line{
+    margin-top:4px;
+    padding:7px 10px;
+    border-radius:5px;
+    border:1.5px dashed var(--steel-light);
+    background:white;
+    color:var(--steel);
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+    width:100%;
+  }
+  .btn-add-line:hover{border-color:var(--red); color:var(--red);}
+
   .step-progress{
     display:flex;
     gap:6px;
@@ -395,6 +461,8 @@
       <input type="checkbox" id="toggle-dims" checked>
       Show dimension values on symbol
     </label>
+
+    <div id="lines-root"></div>
 
     <div id="step-progress" class="step-progress" aria-hidden="true"></div>
 
