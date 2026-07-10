@@ -18,6 +18,7 @@ const state = {
   fieldWeld: false,
   weldAllAround: false,
   chainStagger: "chain",
+  beveledFace: "A",
   touchedParams: {}
 };
 
@@ -94,6 +95,15 @@ function handleSvgClick(evt) {
 function toggleFieldWeld(checked) { state.fieldWeld = checked; renderVisual(); }
 function toggleWeldAllAround(checked) { state.weldAllAround = checked; renderVisual(); }
 function setChainStagger(val) { state.chainStagger = val; renderVisual(); }
+
+// Picking a face is a deliberate, structured choice — it should visibly take
+// effect immediately, so it clears any manual calibration for the current
+// joint that would otherwise silently override it.
+function setBeveledFace(face) {
+  state.beveledFace = face;
+  delete state.arrowOverrides[state.joint];
+  renderVisual();
+}
 
 function stepNext() { if (state.step < STEP_COUNT - 1) { state.step++; render(); } }
 function stepBack() { if (state.step > 0) { state.step--; render(); } }
@@ -240,6 +250,28 @@ function buildSideStep(container) {
   });
   fs.appendChild(toggle);
   container.appendChild(fs);
+
+  const needsFace = (state.weld === "bevel" || state.weld === "j" || state.weld === "flarebevel");
+  if (needsFace) {
+    const fsFace = document.createElement("fieldset");
+    fsFace.innerHTML = `<legend>Beveled face</legend>`;
+    const faceToggle = document.createElement("div");
+    faceToggle.className = "side-toggle";
+    ["A", "B"].forEach(f => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "Face " + f;
+      b.className = (state.beveledFace === f && !state.arrowOverrides[state.joint]) ? "active" : "";
+      b.onclick = () => setBeveledFace(f);
+      faceToggle.appendChild(b);
+    });
+    fsFace.appendChild(faceToggle);
+    const faceHint = document.createElement("div");
+    faceHint.className = "field-hint";
+    faceHint.textContent = "Only one member is prepped for this weld — pick which one. The arrow (and its break) will point specifically at that face. Use \u201cSet arrow position\u201d below for exact manual placement instead.";
+    fsFace.appendChild(faceHint);
+    container.appendChild(fsFace);
+  }
 
   const fsArrow = document.createElement("fieldset");
   fsArrow.innerHTML = `<legend>Arrow position on joint</legend>`;
