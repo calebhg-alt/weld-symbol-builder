@@ -307,9 +307,10 @@ function buildParamsStep(container) {
         <select id="p-${key}">${optionsHtml}</select>
         <div class="field-hint">${def.hint}</div>`;
       fs.appendChild(group);
-      setTimeout(() => {
-        document.getElementById(`p-${key}`).onchange = (e) => setParam(key, e.target.value);
-      }, 0);
+      // Attach immediately — the element is already in the live DOM at this
+      // point (appendChild is synchronous), so no setTimeout is needed, and
+      // none of the deferred-callback races that come with it.
+      group.querySelector("select").onchange = (e) => setParam(key, e.target.value);
     } else {
       group.innerHTML = `
         <label for="p-${key}">${def.label}</label>
@@ -319,11 +320,9 @@ function buildParamsStep(container) {
         </div>
         <div class="field-hint">${def.hint} Range: ${fmt(def.min)}\u2013${fmt(def.max)} ${def.unit}.</div>`;
       fs.appendChild(group);
-      setTimeout(() => {
-        const inputEl = document.getElementById(`p-${key}`);
-        inputEl.oninput = (e) => setParam(key, e.target.value);
-        inputEl.onblur = (e) => finalizeParam(key, e.target);
-      }, 0);
+      const inputEl = group.querySelector("input");
+      inputEl.oninput = (e) => setParam(key, e.target.value);
+      inputEl.onblur = (e) => finalizeParam(key, e.target);
     }
   });
   container.appendChild(fs);
@@ -344,7 +343,25 @@ function renderVisual() {
   document.getElementById("tb-weld").textContent = WELD_TYPES[state.weld].label;
   document.getElementById("tb-side").textContent = { arrow: "Arrow side", other: "Other side", double: "Double" }[state.side];
   document.querySelector(".sheet").classList.toggle("calibrating", state.calibrating);
-  renderSymbol(document.getElementById("symbol-svg"), state);
+  const svg = document.getElementById("symbol-svg");
+  try {
+    renderSymbol(svg, state);
+  } catch (err) {
+    // Never leave the sheet silently blank on an unexpected error — surface
+    // something recoverable instead of a mysterious empty diagram.
+    console.error("Symbol render failed:", err);
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.setAttribute("viewBox", "0 0 900 420");
+    const msg = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    msg.setAttribute("x", "450");
+    msg.setAttribute("y", "200");
+    msg.setAttribute("text-anchor", "middle");
+    msg.setAttribute("fill", "#E8EEF5");
+    msg.setAttribute("font-family", "'IBM Plex Sans Condensed', sans-serif");
+    msg.setAttribute("font-size", "16");
+    msg.textContent = "Couldn't draw the symbol \u2014 try switching joint or weld type.";
+    svg.appendChild(msg);
+  }
 }
 
 function render() {
