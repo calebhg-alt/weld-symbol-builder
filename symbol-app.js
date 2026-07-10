@@ -17,7 +17,8 @@ const state = {
   calibrating: false,
   fieldWeld: false,
   weldAllAround: false,
-  chainStagger: "chain"
+  chainStagger: "chain",
+  touchedParams: {}
 };
 
 const STEP_COUNT = 4;
@@ -37,6 +38,7 @@ function initParams(weldKey) {
     p[key] = def.default;
   });
   state.params = p;
+  state.touchedParams = {};
   if (state.selectedVariable && !WELD_TYPES[weldKey].params.includes(state.selectedVariable)) {
     state.selectedVariable = null;
   }
@@ -122,11 +124,16 @@ function setParam(key, val) {
   const def = PARAM_DEFS[key];
   if (def && def.type === "select") {
     state.params[key] = val;
+    state.touchedParams[key] = true;
     renderVisual();
     return;
   }
   const num = parseFloat(val);
-  if (!isNaN(num)) { state.params[key] = num; renderVisual(); }
+  if (!isNaN(num)) {
+    state.params[key] = num;
+    state.touchedParams[key] = true;
+    renderVisual();
+  }
 }
 function finalizeParam(key, inputEl) {
   const def = PARAM_DEFS[key];
