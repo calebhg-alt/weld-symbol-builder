@@ -89,7 +89,21 @@ function handleSvgClick(evt) {
   pt.x = evt.clientX;
   pt.y = evt.clientY;
   const svgPt = pt.matrixTransform(ctm.inverse());
-  setArrowOverride(svgPt.x, svgPt.y);
+
+  // Snap to the nearest marked corner if the click landed close to one —
+  // exact, unambiguous, and immune to the imprecision of a raw pixel click.
+  const SNAP_RADIUS = 16;
+  const snapPoints = getSnapPoints(state.joint);
+  let nearest = null, nearestDist = Infinity;
+  snapPoints.forEach(sp => {
+    const d = Math.hypot(sp.x - svgPt.x, sp.y - svgPt.y);
+    if (d < nearestDist) { nearestDist = d; nearest = sp; }
+  });
+  if (nearest && nearestDist <= SNAP_RADIUS) {
+    setArrowOverride(nearest.x, nearest.y);
+  } else {
+    setArrowOverride(svgPt.x, svgPt.y);
+  }
 }
 
 function toggleFieldWeld(checked) { state.fieldWeld = checked; renderVisual(); }
@@ -283,7 +297,7 @@ function buildSideStep(container) {
     <button type="button" id="btn-reset-arrow" ${hasOverride ? "" : "disabled"}>Reset to default</button>
     <div class="field-hint">
       ${state.calibrating
-        ? "Click anywhere on the joint diagram \u2014 including either member \u2014 to point the arrow there."
+        ? "Gold circles mark each corner \u2014 click near one to snap exactly to it, or click anywhere else for a free position."
         : (hasOverride ? "Arrow position has been customized for this joint." : "Uses the default root location for this joint.")}
     </div>`;
   fsArrow.appendChild(arrowControls);
