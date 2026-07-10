@@ -71,38 +71,52 @@ function buildGrid(width) {
 }
 
 // ---------- Joint cross-section illustrations ----------
+// Shared plate geometry — the single source of truth for both the drawn
+// illustration and the arrow's collision-avoidance routing, so they can
+// never drift out of sync with each other.
+function getJointPlates(jointKey) {
+  const cx = 130, cy = 250;
+  switch (jointKey) {
+    case "butt":
+      return [
+        { x: cx - 90, y: cy - 14, w: 82, h: 28 },
+        { x: cx + 8, y: cy - 14, w: 82, h: 28 }
+      ];
+    case "tjoint":
+      return [
+        { x: cx - 90, y: cy + 10, w: 180, h: 24 }, // base, horizontal
+        { x: cx - 12, y: cy - 70, w: 24, h: 82 }   // upright
+      ];
+    case "lap":
+      return [
+        { x: cx - 90, y: cy - 6, w: 100, h: 22 },
+        { x: cx - 10, y: cy + 16, w: 100, h: 22 }
+      ];
+    case "corner":
+      return [
+        { x: cx - 90, y: cy - 10, w: 100, h: 22 },
+        { x: cx - 2, y: cy - 92, w: 22, h: 92 }
+      ];
+    case "edge":
+      return [
+        { x: cx - 60, y: cy - 30, w: 120, h: 18 },
+        { x: cx - 60, y: cy - 6, w: 120, h: 18 }
+      ];
+    default:
+      return [];
+  }
+}
+
 function buildJointIllustration(jointKey) {
   const g = el("g", {});
   const plateFill = "#8FA3C2";
   const plateStroke = "#E8EEF5";
-  const cx = 130, cy = 250;
 
-  function plate(x, y, w, h) {
-    return el("rect", { x, y, width: w, height: h, fill: plateFill, stroke: plateStroke, "stroke-width": 2, opacity: 0.85 });
+  function plate(r) {
+    return el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, fill: plateFill, stroke: plateStroke, "stroke-width": 2, opacity: 0.85 });
   }
 
-  switch (jointKey) {
-    case "butt":
-      g.appendChild(plate(cx - 90, cy - 14, 82, 28));
-      g.appendChild(plate(cx + 8, cy - 14, 82, 28));
-      break;
-    case "tjoint":
-      g.appendChild(plate(cx - 90, cy + 10, 180, 24)); // base, horizontal
-      g.appendChild(plate(cx - 12, cy - 70, 24, 82));  // upright
-      break;
-    case "lap":
-      g.appendChild(plate(cx - 90, cy - 6, 100, 22));
-      g.appendChild(plate(cx - 10, cy + 16, 100, 22));
-      break;
-    case "corner":
-      g.appendChild(plate(cx - 90, cy - 10, 100, 22));
-      g.appendChild(plate(cx - 2, cy - 92, 22, 92));
-      break;
-    case "edge":
-      g.appendChild(plate(cx - 60, cy - 30, 120, 18));
-      g.appendChild(plate(cx - 60, cy - 6, 120, 18));
-      break;
-  }
+  getJointPlates(jointKey).forEach(r => g.appendChild(plate(r)));
   return g;
 }
 
@@ -134,8 +148,58 @@ function getEffectiveSeam(jointKey) {
   return jointSeamPoint(jointKey);
 }
 
+// Samples a segment and reports whether it passes through the INTERIOR of
+// any plate rect (a small inset avoids flagging the segment for merely
+// touching a plate's edge, which is expected — the arrow is SUPPOSED to
+// reach the joint, just not cut across solid material to get there).
+function segmentHitsPlate(x1, y1, x2, y2, rects) {
+  const samples = 20;
+  for (let i = 1; i < samples; i++) {
+    const t = i / samples;
+    const x = x1 + (x2 - x1) * t;
+    const y = y1 + (y2 - y1) * t;
+    for (const r of rects) {
+      if (x > r.x + 2 && x < r.x + r.w - 2 && y > r.y + 2 && y < r.y + r.h - 2) return true;
+    }
+  }
+  return false;
+}
+
+// Builds an arrow path (list of points) from the reference line to the
+// joint's root that never cuts across a plate. Tries the direct line first;
+// if that crosses a plate, routes around the joint's full bounding box via
+// an elbow — trying both above and below it, and searching nearby elbow
+// x-positions — until both segments are clear.
+// Runs every time the arrow is drawn, so a calibrated (dragged) arrow
+// re-routes automatically rather than needing a manual fix.
+function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
+  const rects = getJointPlates(jointKey);
+  if (!rects.length || !segmentHitsPlate(ax1, ay1, seamX, seamY, rects)) {
+    return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
+  }
+  const minY = Math.min(...rects.map(r => r.y));
+  const maxY = Math.max(...rects.map(r => r.y + r.h));
+  const candidates = [minY - 18, maxY + 18]; // try routing above, then below
+  for (const safeY of candidates) {
+    for (let dx = 0; dx <= 100; dx += 8) {
+      for (const sign of [1, -1]) {
+        const ex = seamX + sign * dx;
+        if (!segmentHitsPlate(ax1, ay1, ex, safeY, rects) && !segmentHitsPlate(ex, safeY, seamX, seamY, rects)) {
+          return [{ x: ax1, y: ay1 }, { x: ex, y: safeY }, { x: seamX, y: seamY }];
+        }
+      }
+    }
+  }
+  // Fallback: route around the bounding box's corner via two elbows — clears
+  // the top, then approaches the target from whichever side is closer.
+  const minX = Math.min(...rects.map(r => r.x));
+  const maxX = Math.max(...rects.map(r => r.x + r.w));
+  const cornerX = seamX <= (minX + maxX) / 2 ? minX - 18 : maxX + 18;
+  return [{ x: ax1, y: ay1 }, { x: cornerX, y: minY - 18 }, { x: cornerX, y: seamY }, { x: seamX, y: seamY }];
+}
+
 // ---------- Reference line, arrow, tail ----------
-function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt) {
+function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey) {
   const g = el("g", {});
   g.appendChild(el("line", { x1: LINE_X1, y1: LINE_Y, x2: lineX2, y2: LINE_Y, stroke: "#E8EEF5", "stroke-width": 2.5 }));
 
@@ -156,33 +220,40 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt) {
     g.appendChild(el("line", { x1: ax1, y1: ay1 - 8, x2: ax1, y2: ay1 - 20, stroke: "#E8EEF5", "stroke-width": 1.5 }));
   }
 
+  // Route the arrow around any plate it would otherwise cut across. Runs
+  // fresh on every render, so a calibrated (dragged) arrow position or a
+  // joint switch both re-route automatically — nothing to fix by hand.
+  const path = computeArrowPath(ax1, ay1, ax2, ay2, jointKey);
+
   // Broken/bent leader line: required whenever only ONE member of the joint
   // is prepared (bevel, J-groove, flare-bevel) — the bend points the arrow
   // specifically at that member instead of running straight to the root.
-  // The bend is perpendicular to the arrow's own direction (not a fixed
-  // x/y offset) so it reads as a clear, deliberate jog regardless of the
-  // angle between the reference line and the joint.
+  // Applied to the FINAL segment of the routed path (closest to the
+  // arrowhead), so it still reads correctly even when the path also had to
+  // detour around a plate.
   const needsBreak = (weldKey === "bevel" || weldKey === "j" || weldKey === "flarebevel");
+  let finalSegStart = path[path.length - 2];
+  const finalSegEnd = path[path.length - 1];
+  let points = path.map(p => `${p.x},${p.y}`);
+
   if (needsBreak) {
-    const t = 0.62; // bend sits closer to the arrowhead than the reference line
-    const midX = ax1 + (ax2 - ax1) * t;
-    const midY = ay1 + (ay2 - ay1) * t;
-    const dx = ax2 - ax1, dy = ay2 - ay1;
+    const t = 0.62; // bend sits closer to the arrowhead than the previous point
+    const midX = finalSegStart.x + (finalSegEnd.x - finalSegStart.x) * t;
+    const midY = finalSegStart.y + (finalSegEnd.y - finalSegStart.y) * t;
+    const dx = finalSegEnd.x - finalSegStart.x, dy = finalSegEnd.y - finalSegStart.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    // Perpendicular to the arrow, pointing away from the joint plates (up/left)
-    // rather than into them, so the bend is always clearly visible.
     const bendOffset = 22;
     const bendX = midX + (-dy / len) * bendOffset;
     const bendY = midY + (dx / len) * bendOffset;
-    g.appendChild(el("polyline", {
-      points: `${ax1},${ay1} ${bendX},${bendY} ${ax2},${ay2}`,
-      fill: "none", stroke: "#E8EEF5", "stroke-width": 2.5
-    }));
-  } else {
-    g.appendChild(el("line", { x1: ax1, y1: ay1, x2: ax2, y2: ay2, stroke: "#E8EEF5", "stroke-width": 2.5 }));
+    points = path.slice(0, -1).map(p => `${p.x},${p.y}`).concat([`${bendX},${bendY}`, `${finalSegEnd.x},${finalSegEnd.y}`]);
+    finalSegStart = { x: bendX, y: bendY };
   }
-  // arrowhead
-  const angle = Math.atan2(ay2 - ay1, ax2 - ax1);
+
+  g.appendChild(el("polyline", { points: points.join(" "), fill: "none", stroke: "#E8EEF5", "stroke-width": 2.5 }));
+
+  // arrowhead — angled to match the actual final approach direction, not
+  // the start-to-end direction, so it's still correct after routing/bending.
+  const angle = Math.atan2(finalSegEnd.y - finalSegStart.y, finalSegEnd.x - finalSegStart.x);
   const ah1x = ax2 - 14 * Math.cos(angle - 0.35), ah1y = ay2 - 14 * Math.sin(angle - 0.35);
   const ah2x = ax2 - 14 * Math.cos(angle + 0.35), ah2y = ay2 - 14 * Math.sin(angle + 0.35);
   g.appendChild(el("polygon", { points: `${ax2},${ay2} ${ah1x},${ah1y} ${ah2x},${ah2y}`, fill: "#E8EEF5" }));
@@ -481,7 +552,7 @@ function renderSymbol(svg, appState) {
   }
 
   const seamPt = getEffectiveSeam(appState.joint);
-  svg.appendChild(buildReferenceLine(!!appState.tailText, appState.tailText, appState.weld, lineX2, seamPt));
+  svg.appendChild(buildReferenceLine(!!appState.tailText, appState.tailText, appState.weld, lineX2, seamPt, appState.joint));
 
   const glyphCx = LINE_X1 + 130;
   // Chain vs. staggered only applies to a double-sided intermittent fillet —
