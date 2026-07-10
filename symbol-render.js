@@ -138,12 +138,36 @@ function jointSeamPoint(jointKey) {
   }
 }
 
+// Two distinct arrow targets per joint — one biased toward each of the two
+// members — used when a bevel, J-groove, or flare-bevel weld is selected,
+// so the person can explicitly designate WHICH member gets prepped instead
+// of hoping the default arrow happens to point at the right one. Face A
+// always matches the plain jointSeamPoint default, so nothing changes for
+// existing behavior unless Face B is deliberately chosen.
+function jointFacePoints(jointKey) {
+  const cx = 130, cy = 250;
+  switch (jointKey) {
+    case "butt": return [{ x: cx, y: cy }, { x: cx, y: cy }]; // shared gap; both plates meet at the same root
+    case "tjoint": return [{ x: cx - 12, y: cy + 10 }, { x: cx + 12, y: cy + 10 }]; // upright's near vs. far face
+    case "lap": return [{ x: cx + 10, y: cy + 16 }, { x: cx - 10, y: cy + 16 }]; // top plate's edge vs. bottom plate's edge
+    case "corner": return [{ x: cx + 10, y: cy - 10 }, { x: cx - 2, y: cy - 10 }]; // base's edge vs. upright's near face
+    case "edge": return [{ x: cx + 60, y: cy - 12 }, { x: cx + 60, y: cy - 6 }]; // top plate side vs. bottom plate side
+    default: return [{ x: cx, y: cy }, { x: cx, y: cy }];
+  }
+}
+
 // A person-calibrated arrow target always wins over the built-in default —
 // this is what lets the user correct the arrow position themselves instead
 // of relying on hardcoded guesses.
 function getEffectiveSeam(jointKey) {
+  // Manual calibration always wins — the free-position option stays fully in control.
   if (state.arrowOverrides && state.arrowOverrides[jointKey]) {
     return state.arrowOverrides[jointKey];
+  }
+  const needsFace = (state.weld === "bevel" || state.weld === "j" || state.weld === "flarebevel");
+  if (needsFace) {
+    const faces = jointFacePoints(jointKey);
+    return state.beveledFace === "B" ? faces[1] : faces[0];
   }
   return jointSeamPoint(jointKey);
 }
