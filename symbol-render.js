@@ -156,13 +156,26 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt) {
     g.appendChild(el("line", { x1: ax1, y1: ay1 - 8, x2: ax1, y2: ay1 - 20, stroke: "#E8EEF5", "stroke-width": 1.5 }));
   }
 
+  // Broken/bent leader line: required whenever only ONE member of the joint
+  // is prepared (bevel, J-groove, flare-bevel) — the bend points the arrow
+  // specifically at that member instead of running straight to the root.
+  // The bend is perpendicular to the arrow's own direction (not a fixed
+  // x/y offset) so it reads as a clear, deliberate jog regardless of the
+  // angle between the reference line and the joint.
   const needsBreak = (weldKey === "bevel" || weldKey === "j" || weldKey === "flarebevel");
   if (needsBreak) {
-    const bx = ax1 - (ax1 - ax2) * 0.4;
-    const by = ay1 - (ay1 - ay2) * 0.4;
-    const kx = bx + 14, ky = by - 6;
+    const t = 0.62; // bend sits closer to the arrowhead than the reference line
+    const midX = ax1 + (ax2 - ax1) * t;
+    const midY = ay1 + (ay2 - ay1) * t;
+    const dx = ax2 - ax1, dy = ay2 - ay1;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    // Perpendicular to the arrow, pointing away from the joint plates (up/left)
+    // rather than into them, so the bend is always clearly visible.
+    const bendOffset = 22;
+    const bendX = midX + (-dy / len) * bendOffset;
+    const bendY = midY + (dx / len) * bendOffset;
     g.appendChild(el("polyline", {
-      points: `${ax1},${ay1} ${kx},${ky} ${bx},${by} ${ax2},${ay2}`,
+      points: `${ax1},${ay1} ${bendX},${bendY} ${ax2},${ay2}`,
       fill: "none", stroke: "#E8EEF5", "stroke-width": 2.5
     }));
   } else {
