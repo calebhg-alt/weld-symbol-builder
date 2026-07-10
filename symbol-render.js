@@ -204,8 +204,37 @@ function segmentHitsPlate(x1, y1, x2, y2, rects, pad) {
 // distances, only falling back to a non-45-degree route in the rare case
 // nothing else is possible.
 function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
-  const allRects = getJointPlates(jointKey);
-  if (!allRects.length) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
+  const plateRects = getJointPlates(jointKey);
+  if (!plateRects.length) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
+
+  const minX = Math.min(...plateRects.map(r => r.x));
+  const maxX = Math.max(...plateRects.map(r => r.x + r.w));
+  const minY = Math.min(...plateRects.map(r => r.y));
+  const maxY = Math.max(...plateRects.map(r => r.y + r.h));
+
+  // A horizontal barrier across any genuine GAP between plates (empty space
+  // with no material at all, like a butt or edge joint's root gap) — the
+  // path can only cross it by going around, or by landing exactly on it
+  // (the target). This deliberately does NOT span a plate's own x-range —
+  // approaching along a member's own edge (like a T-joint's upright) is a
+  // legitimate, expected path, not "traveling through the joint".
+  const axisY = (minY + maxY) / 2;
+  const intervals = plateRects.map(r => [r.x, r.x + r.w]).sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  intervals.forEach(iv => {
+    if (merged.length && iv[0] <= merged[merged.length - 1][1]) {
+      merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], iv[1]);
+    } else {
+      merged.push(iv.slice());
+    }
+  });
+  const gapBarriers = [];
+  let cursor = minX;
+  merged.forEach(iv => {
+    if (iv[0] > cursor) gapBarriers.push({ x: cursor, y: axisY - 5, w: iv[0] - cursor, h: 10 });
+    cursor = Math.max(cursor, iv[1]);
+  });
+  const allRects = plateRects.concat(gapBarriers);
 
   // Points close to the TARGET itself are exempt from collision checking —
   // approaching a corner closely is the whole point of a root location.
@@ -232,10 +261,6 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
     return true;
   }
 
-  const minX = Math.min(...allRects.map(r => r.x));
-  const maxX = Math.max(...allRects.map(r => r.x + r.w));
-  const minY = Math.min(...allRects.map(r => r.y));
-  const maxY = Math.max(...allRects.map(r => r.y + r.h));
   const OUT = 22;
 
   // Below-right, below-left, above-right, above-left — below tried first.
