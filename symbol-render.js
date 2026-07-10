@@ -432,10 +432,23 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey
 // the glyph (the "S(E)" position), length-pitch to the right ("L-P"), groove
 // angle at the vertex ("A"), root opening/face and groove radius stacked
 // just beyond the open end of the glyph ("R").
-function buildGlyph(weldKey, cx, dir, params, repeatInfo, interactive) {
+// Rough estimate of how far a glyph's full footprint extends from the
+// reference line — including its own dimension labels, not just the shape
+// itself — used to stack a compound secondary symbol cleanly beyond
+// everything the primary draws, not just its line-work.
+function glyphCoreDepth(weldKey, params) {
+  if (weldKey === "fillet") {
+    const sizePx = 18 + ((params.size || 0.25) / 1.5) * 55;
+    return sizePx + 38; // matches where fillet's own contour/finish sit
+  }
+  if (weldKey === "square") return 84; // rootOpening(44) + contour/finish(64-84)
+  return 90; // v/bevel/u/j/flarebevel: own labels extend to ~DEPTH+70-88
+}
+
+function buildGlyph(weldKey, cx, dir, params, repeatInfo, interactive, baseY) {
   interactive = interactive === undefined ? true : interactive;
   const g = el("g", {});
-  const lineY = LINE_Y;
+  const lineY = baseY === undefined ? LINE_Y : baseY;
   const DEPTH = 50;
   const GAP = 12;
   const leftX = cx - 80;
@@ -745,19 +758,20 @@ function renderSymbol(svg, appState) {
     svg.appendChild(buildGlyph(appState.weld, glyphCx, -1, appState.params, otherRepeat));
   }
 
-  // Compound symbol: a second glyph immediately beside the primary one, on
-  // the same side(s) of the line, with its own independent dimensions.
-  // Rendered non-interactively (plain labels, not clickable) — its params
-  // share key names with the primary's, so making them separately
-  // clickable would require id-namespacing the whole panel for no real
-  // benefit, since compound symbols are a secondary/occasional feature.
+  // Compound symbol: reference line, then the primary (groove) symbol, then
+  // the secondary (typically fillet) symbol stacked immediately beyond it —
+  // both anchored at the same position on the line, reading outward, per
+  // real AWS combination-weld convention (not spread out side by side).
+  // No gap between them: the secondary's base connects directly to the
+  // primary's outer edge, so it reads as one continuous stacked symbol.
   if (appState.secondaryWeld && appState.secondaryParams) {
-    const secondaryCx = glyphCx + 150;
     if (appState.side === "arrow" || appState.side === "double") {
-      svg.appendChild(buildGlyph(appState.secondaryWeld, secondaryCx, 1, appState.secondaryParams, null, false));
+      const primaryDepth = glyphCoreDepth(appState.weld, appState.params);
+      svg.appendChild(buildGlyph(appState.secondaryWeld, glyphCx, 1, appState.secondaryParams, null, false, LINE_Y + primaryDepth));
     }
     if (appState.side === "other" || appState.side === "double") {
-      svg.appendChild(buildGlyph(appState.secondaryWeld, secondaryCx, -1, appState.secondaryParams, null, false));
+      const primaryDepth = glyphCoreDepth(appState.weld, appState.params);
+      svg.appendChild(buildGlyph(appState.secondaryWeld, glyphCx, -1, appState.secondaryParams, null, false, LINE_Y - primaryDepth));
     }
   }
 
