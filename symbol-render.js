@@ -159,11 +159,25 @@ function jointFacePoints(jointKey) {
   }
 }
 
-// Snap points shown (and clickable) during calibration — the same two face
-// points, just exposed as a named list so clicking near one snaps to its
-// exact coordinates instead of an imprecise raw pixel.
+// Snap points shown (and clickable) during calibration — every actual
+// corner of every plate in the joint, not just a couple of hand-picked
+// points. Corners that coincide (where two plates meet) are deduped so
+// there's one clean marker per physical location, not overlapping ones.
 function getSnapPoints(jointKey) {
-  return jointFacePoints(jointKey);
+  const rects = getJointPlates(jointKey);
+  const raw = [];
+  rects.forEach((r, idx) => {
+    const n = idx + 1;
+    raw.push({ x: r.x, y: r.y, label: `Plate ${n} \u2014 top-left` });
+    raw.push({ x: r.x + r.w, y: r.y, label: `Plate ${n} \u2014 top-right` });
+    raw.push({ x: r.x, y: r.y + r.h, label: `Plate ${n} \u2014 bottom-left` });
+    raw.push({ x: r.x + r.w, y: r.y + r.h, label: `Plate ${n} \u2014 bottom-right` });
+  });
+  const deduped = [];
+  raw.forEach(p => {
+    if (!deduped.some(d => Math.hypot(d.x - p.x, d.y - p.y) < 4)) deduped.push(p);
+  });
+  return deduped;
 }
 
 // A person-calibrated arrow target always wins over the built-in default —
