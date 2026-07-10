@@ -141,24 +141,6 @@ function jointSeamPoint(jointKey) {
   }
 }
 
-// Two distinct arrow targets per joint — one biased toward each of the two
-// members — used when a bevel, J-groove, or flare-bevel weld is selected,
-// so the person can explicitly designate WHICH member gets prepped instead
-// of hoping the default arrow happens to point at the right one. Face A
-// always matches the plain jointSeamPoint default, so nothing changes for
-// existing behavior unless Face B is deliberately chosen.
-function jointFacePoints(jointKey) {
-  const cx = 130, cy = 250;
-  switch (jointKey) {
-    case "butt": return [{ x: cx - 8, y: cy, label: "Left plate" }, { x: cx + 8, y: cy, label: "Right plate" }];
-    case "tjoint": return [{ x: cx - 12, y: cy + 10, label: "Upright (near)" }, { x: cx + 12, y: cy + 10, label: "Upright (far)" }];
-    case "lap": return [{ x: cx + 10, y: cy + 16, label: "Top plate" }, { x: cx - 10, y: cy + 16, label: "Bottom plate" }];
-    case "corner": return [{ x: cx + 20, y: cy - 10, label: "Base plate" }, { x: cx - 2, y: cy - 10, label: "Upright" }];
-    case "edge": return [{ x: cx + 60, y: cy - 12, label: "Top plate" }, { x: cx + 60, y: cy - 6, label: "Bottom plate" }];
-    default: return [{ x: cx, y: cy, label: "Root" }, { x: cx, y: cy, label: "Root" }];
-  }
-}
-
 // Snap points shown (and clickable) during calibration — every actual
 // corner of every plate in the joint, not just a couple of hand-picked
 // points. Corners that coincide (where two plates meet) are deduped so
@@ -184,29 +166,22 @@ function getSnapPoints(jointKey) {
 // this is what lets the user correct the arrow position themselves instead
 // of relying on hardcoded guesses.
 function getEffectiveSeam(jointKey) {
-  // Manual calibration always wins — the free-position option stays fully in control.
+  // Manual calibration (including a snapped corner) always wins over the
+  // plain default — this is now the one, clear way to target a specific
+  // member for bevel/J-groove/flare-bevel welds.
   if (state.arrowOverrides && state.arrowOverrides[jointKey]) {
     return state.arrowOverrides[jointKey];
-  }
-  const needsFace = (state.weld === "bevel" || state.weld === "j" || state.weld === "flarebevel");
-  if (needsFace) {
-    const faces = jointFacePoints(jointKey);
-    return state.beveledFace === "B" ? faces[1] : faces[0];
   }
   return jointSeamPoint(jointKey);
 }
 
 // Samples a segment and reports whether it passes through the INTERIOR of
-// any plate rect (a small inset avoids flagging the segment for merely
-// touching a plate's edge, which is expected — the arrow is SUPPOSED to
-// reach the joint, just not cut across solid material to get there).
-// pad > 0 expands the plate outward before testing (stricter — flags the
-// segment for merely coming close, used to keep real clearance from plates
-// the arrow ISN'T targeting). pad < 0 shrinks the plate inward (lenient —
-// only flags genuine deep penetration, used for the plate the arrow IS
-// heading toward, since approaching it closely is the whole point).
+// any plate rect. pad shrinks (negative) or expands (positive) the plate
+// before testing; negative pad only flags genuine deep penetration, which
+// is what actually reads as "overlap" to a human — a line merely running
+// close to (or along) a plate's edge is not a real crossing.
 function segmentHitsPlate(x1, y1, x2, y2, rects, pad) {
-  pad = pad === undefined ? -2 : pad;
+  pad = pad === undefined ? -3 : pad;
   const samples = 100;
   for (let i = 1; i < samples; i++) {
     const t = i / samples;
@@ -219,63 +194,73 @@ function segmentHitsPlate(x1, y1, x2, y2, rects, pad) {
   return false;
 }
 
-// Builds an arrow path (list of points) from the reference line to the
-// joint's root that never cuts across a plate. Tries the direct line first;
-// if that crosses a plate, routes around the joint's full bounding box via
-// an elbow — trying both above and below it, and searching nearby elbow
-// x-positions — until both segments are clear.
-// Runs every time the arrow is drawn, so a calibrated (dragged) arrow
-// re-routes automatically rather than needing a manual fix.
+// Builds an arrow path from the reference line to the joint's root that
+// never cuts across a plate. Tries the direct line first; if that's
+// blocked, generates a handful of candidate one-elbow routes (above, below,
+// left, right of the joint, plus diagonal corners) and picks whichever
+// valid one is SHORTEST. Preferring the shortest valid route is what keeps
+// the arrow from taking a long way around that ends up running flush along
+// a plate's edge for an extended stretch — technically "outside" the plate,
+// but visually indistinguishable from overlapping it.
 function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   const allRects = getJointPlates(jointKey);
   if (!allRects.length) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
 
-  // The plate nearest the target is expected to be approached closely —
-  // that's the whole point of a root location — so it's excluded from the
-  // wider-margin check. Every OTHER plate still needs real clearance,
-  // otherwise a "safe" route can end up running flush along a neighboring
-  // plate's edge, which is technically outside it but visually reads as
-  // overlapping (especially with the plate's own stroke width).
-  let nearestIdx = 0, nearestDist = Infinity;
-  allRects.forEach((r, i) => {
-    const cx = Math.max(r.x, Math.min(seamX, r.x + r.w));
-    const cy = Math.max(r.y, Math.min(seamY, r.y + r.h));
-    const d = Math.hypot(seamX - cx, seamY - cy);
-    if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
-  });
-  const targetRect = [allRects[nearestIdx]];
-  const otherRects = allRects.filter((_, i) => i !== nearestIdx);
-  const CLEARANCE = 8; // expand other plates outward by this much when checking
-
-  function pathIsClear(x1, y1, x2, y2) {
-    return !segmentHitsPlate(x1, y1, x2, y2, otherRects, CLEARANCE) &&
-           !segmentHitsPlate(x1, y1, x2, y2, targetRect, -2);
-  }
-
-  if (pathIsClear(ax1, ay1, seamX, seamY)) {
-    return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
-  }
-  const minY = Math.min(...allRects.map(r => r.y));
-  const maxY = Math.max(...allRects.map(r => r.y + r.h));
-  const candidates = [minY - 20, maxY + 20]; // try routing above, then below
-  for (const safeY of candidates) {
-    for (let dx = 0; dx <= 100; dx += 8) {
-      for (const sign of [1, -1]) {
-        const ex = seamX + sign * dx;
-        if (!segmentHitsPlate(ax1, ay1, ex, safeY, allRects, CLEARANCE) && pathIsClear(ex, safeY, seamX, seamY)) {
-          return [{ x: ax1, y: ay1 }, { x: ex, y: safeY }, { x: seamX, y: seamY }];
-        }
+  // Points close to the TARGET itself are exempt from collision checking —
+  // approaching a corner closely is the whole point of a root location.
+  // This is proximity to the actual point along the path, not "is this
+  // plate near the target" — that distinction matters: it still correctly
+  // catches a path that cuts straight through a plate's near side just to
+  // reach that same plate's own far corner, which is a real overlap.
+  const NEAR_TARGET = 12;
+  function clear(x1, y1, x2, y2) {
+    const samples = 100;
+    for (let i = 1; i < samples; i++) {
+      const t = i / samples;
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      if (Math.hypot(x - seamX, y - seamY) < NEAR_TARGET) continue;
+      for (const r of allRects) {
+        if (x > r.x + 3 && x < r.x + r.w - 3 && y > r.y + 3 && y < r.y + r.h - 3) return false;
       }
     }
+    return true;
   }
-  // Fallback: route around the bounding box's corner via two elbows — clears
-  // the top, then approaches the target from whichever side is closer.
+
+  const direct = [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
+  if (clear(ax1, ay1, seamX, seamY)) return direct;
+
   const minX = Math.min(...allRects.map(r => r.x));
   const maxX = Math.max(...allRects.map(r => r.x + r.w));
-  const cornerX = seamX <= (minX + maxX) / 2 ? minX - 20 : maxX + 20;
-  return [{ x: ax1, y: ay1 }, { x: cornerX, y: minY - 20 }, { x: cornerX, y: seamY }, { x: seamX, y: seamY }];
-}
+  const minY = Math.min(...allRects.map(r => r.y));
+  const maxY = Math.max(...allRects.map(r => r.y + r.h));
+  const OUT = 22;
 
+  const waypoints = [
+    { x: seamX, y: minY - OUT },       // straight above the target
+    { x: seamX, y: maxY + OUT },       // straight below the target
+    { x: minX - OUT, y: seamY },       // straight left of the target
+    { x: maxX + OUT, y: seamY },       // straight right of the target
+    { x: minX - OUT, y: minY - OUT },  // top-left corner of the bounding box
+    { x: maxX + OUT, y: minY - OUT },  // top-right corner
+    { x: minX - OUT, y: maxY + OUT },  // bottom-left corner
+    { x: maxX + OUT, y: maxY + OUT }   // bottom-right corner
+  ];
+
+  let best = null, bestFinalLen = Infinity;
+  waypoints.forEach(wp => {
+    if (clear(ax1, ay1, wp.x, wp.y) && clear(wp.x, wp.y, seamX, seamY)) {
+      const finalLen = Math.hypot(seamX - wp.x, seamY - wp.y);
+      if (finalLen < bestFinalLen) { bestFinalLen = finalLen; best = [{ x: ax1, y: ay1 }, wp, { x: seamX, y: seamY }]; }
+    }
+  });
+  if (best) return best;
+
+  // Last resort (rare): two elbows via the bounding box corner nearest the target.
+  const cornerX = seamX <= (minX + maxX) / 2 ? minX - OUT : maxX + OUT;
+  const cornerY = seamY <= (minY + maxY) / 2 ? minY - OUT : maxY + OUT;
+  return [{ x: ax1, y: ay1 }, { x: cornerX, y: cornerY }, { x: seamX, y: cornerY }, { x: seamX, y: seamY }];
+}
 
 // ---------- Reference line, arrow, tail ----------
 function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey) {
