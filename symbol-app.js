@@ -19,13 +19,42 @@ const state = {
   weldAllAround: false,
   chainStagger: "chain",
   touchedParams: {},
-  secondaryWeld: null,      // weld key, or null if no compound symbol
-  secondaryParams: {},
-  secondaryTouched: {}
+  additionalLines: [],  // extra reference lines beyond the first (stacked, sharing one joint/arrow/tail)
+  activeLine: 0          // which line is being edited: 0 = the fields above, 1+ = additionalLines[n-1]
 };
 
 const STEP_COUNT = 4;
 const STEP_LABELS = ["Joint", "Weld Type", "Placement", "Dimensions"];
+
+// The single accessor every weld-editing function goes through. Line 0 IS
+// the flat state object itself (not a copy) — that keeps every single-line
+// workflow, and every existing test, working exactly as before. Only lines
+// 1+ live in the additionalLines array.
+function activeLine() {
+  return state.activeLine === 0 ? state : state.additionalLines[state.activeLine - 1];
+}
+function newLine() {
+  const weld = "fillet";
+  return {
+    weld, side: "arrow", params: initParams(weld), touchedParams: {}, selectedVariable: null,
+    fieldWeld: false, weldAllAround: false, chainStagger: "chain"
+  };
+}
+function addLine() {
+  state.additionalLines.push(newLine());
+  state.activeLine = state.additionalLines.length; // jump to editing the new line
+  render();
+}
+function removeLine(index) {
+  // index is the 0-based position within additionalLines (i.e. line number index+2)
+  state.additionalLines.splice(index, 1);
+  if (state.activeLine > state.additionalLines.length) state.activeLine = state.additionalLines.length;
+  render();
+}
+function selectLine(index) {
+  state.activeLine = index;
+  render();
+}
 
 function initParams(weldKey) {
   const p = {};
@@ -42,55 +71,6 @@ function initParams(weldKey) {
   });
   return p;
 }
-
-// A compound symbol pairs a second weld glyph with the primary one on the
-// same side of the line — e.g. a bevel groove with a reinforcing fillet.
-// Real AWS practice; most joints don't need it, so it's off by default.
-function toggleCompound(on) {
-  if (on) {
-    const avail = getAvailableWelds(state.joint, state.showAdvanced).filter(k => k !== state.weld);
-    state.secondaryWeld = avail[0] || "fillet";
-    state.secondaryParams = initParams(state.secondaryWeld);
-    state.secondaryTouched = {};
-  } else {
-    state.secondaryWeld = null;
-    state.secondaryParams = {};
-    state.secondaryTouched = {};
-  }
-  render();
-}
-function selectSecondaryWeld(key) {
-  state.secondaryWeld = key;
-  state.secondaryParams = initParams(key);
-  state.secondaryTouched = {};
-  render();
-}
-function setSecondaryParam(key, val) {
-  const def = PARAM_DEFS[key];
-  if (def && def.type === "select") {
-    state.secondaryParams[key] = val;
-    state.secondaryTouched[key] = true;
-    renderVisual();
-    return;
-  }
-  const num = parseFloat(val);
-  if (!isNaN(num)) {
-    state.secondaryParams[key] = num;
-    state.secondaryTouched[key] = true;
-    renderVisual();
-  }
-}
-function finalizeSecondaryParam(key, inputEl) {
-  const def = PARAM_DEFS[key];
-  if (def && def.type === "select") return;
-  let num = parseFloat(inputEl.value);
-  if (isNaN(num)) num = def.default;
-  num = clamp(num, def.min, def.max);
-  state.secondaryParams[key] = num;
-  inputEl.value = num;
-  renderVisual();
-}
-
 
 function setMode(mode) {
   state.mode = mode;
@@ -152,18 +132,19 @@ function handleSvgClick(evt) {
   }
 }
 
-function toggleFieldWeld(checked) { state.fieldWeld = checked; renderVisual(); }
-function toggleWeldAllAround(checked) { state.weldAllAround = checked; renderVisual(); }
-function setChainStagger(val) { state.chainStagger = val; renderVisual(); }
+function toggleFieldWeld(checked) { activeLine().fieldWeld = checked; renderVisual(); }
+function toggleWeldAllAround(checked) { activeLine().weldAllAround = checked; renderVisual(); }
+function setChainStagger(val) { activeLine().chainStagger = val; renderVisual(); }
 
 function stepNext() { if (state.step < STEP_COUNT - 1) { state.step++; render(); } }
 function stepBack() { if (state.step > 0) { state.step--; render(); } }
 
 function applyParams(weldKey) {
-  state.params = initParams(weldKey);
-  state.touchedParams = {};
-  if (state.selectedVariable && !WELD_TYPES[weldKey].params.includes(state.selectedVariable)) {
-    state.selectedVariable = null;
+  const line = activeLine();
+  line.params = initParams(weldKey);
+  line.touchedParams = {};
+  if (line.selectedVariable && !WELD_TYPES[weldKey].params.includes(line.selectedVariable)) {
+    line.selectedVariable = null;
   }
 }
 applyParams(state.weld);
@@ -171,41 +152,40 @@ applyParams(state.weld);
 function selectJoint(key) {
   state.joint = key;
   const avail = getAvailableWelds(key, state.showAdvanced);
-  if (!avail.includes(state.weld)) {
-    state.weld = avail[0];
-    applyParams(state.weld);
-  }
-  if (state.secondaryWeld) {
-    const availSecondary = getAvailableWelds(key, state.showAdvanced);
-    if (!availSecondary.includes(state.secondaryWeld)) toggleCompound(false);
+  const line = activeLine();
+  if (!avail.includes(line.weld)) {
+    line.weld = avail[0];
+    applyParams(line.weld);
   }
   render();
 }
 function selectWeld(key) {
-  state.weld = key;
+  activeLine().weld = key;
   applyParams(key);
   render();
 }
-function selectSide(side) { state.side = side; render(); }
+function selectSide(side) { activeLine().side = side; render(); }
 function toggleAdvanced(checked) {
   state.showAdvanced = checked;
   const avail = getAvailableWelds(state.joint, state.showAdvanced);
-  if (!avail.includes(state.weld)) { state.weld = avail[0]; applyParams(state.weld); }
+  const line = activeLine();
+  if (!avail.includes(line.weld)) { line.weld = avail[0]; applyParams(line.weld); }
   render();
 }
 function setTail(val) { state.tailText = val; renderVisual(); }
 function setParam(key, val) {
   const def = PARAM_DEFS[key];
+  const line = activeLine();
   if (def && def.type === "select") {
-    state.params[key] = val;
-    state.touchedParams[key] = true;
+    line.params[key] = val;
+    line.touchedParams[key] = true;
     renderVisual();
     return;
   }
   const num = parseFloat(val);
   if (!isNaN(num)) {
-    state.params[key] = num;
-    state.touchedParams[key] = true;
+    line.params[key] = num;
+    line.touchedParams[key] = true;
     renderVisual();
   }
 }
@@ -215,7 +195,7 @@ function finalizeParam(key, inputEl) {
   let num = parseFloat(inputEl.value);
   if (isNaN(num)) num = def.default;
   num = clamp(num, def.min, def.max);
-  state.params[key] = num;
+  activeLine().params[key] = num;
   inputEl.value = num;
   renderVisual();
 }
@@ -224,8 +204,9 @@ function finalizeParam(key, inputEl) {
 // Dimensions panel (switching to Freeform mode if needed), highlights the
 // matching field, and moves keyboard focus into it.
 function selectVariable(key) {
-  if (!PARAM_DEFS[key] || !WELD_TYPES[state.weld].params.includes(key)) return;
-  state.selectedVariable = key;
+  const line = activeLine();
+  if (!PARAM_DEFS[key] || !WELD_TYPES[line.weld].params.includes(key)) return;
+  line.selectedVariable = key;
   if (state.mode !== "freeform") {
     setMode("freeform");
   } else {
@@ -247,6 +228,62 @@ function previewVariable(key) {
 }
 
 // ---------- Panel builders ----------
+function buildLinesPanel() {
+  const root = document.getElementById("lines-root");
+  root.innerHTML = "";
+  const panel = document.createElement("div");
+  panel.className = "lines-panel";
+  panel.innerHTML = `<div class="lines-panel-title">Reference Lines</div>`;
+  const list = document.createElement("div");
+  list.className = "lines-list";
+
+  const total = 1 + state.additionalLines.length;
+  for (let i = 0; i < total; i++) {
+    const line = i === 0 ? state : state.additionalLines[i - 1];
+    const row = document.createElement("div");
+    row.className = "line-row";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "line-select" + (state.activeLine === i ? " active" : "");
+    b.textContent = "Line " + (i + 1) + ": " + WELD_TYPES[line.weld].label;
+    b.onclick = () => selectLine(i);
+    row.appendChild(b);
+    if (total > 1) {
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "line-remove";
+      rm.setAttribute("aria-label", "Remove line " + (i + 1));
+      rm.textContent = "\u2715";
+      if (i === 0) {
+        rm.disabled = true;
+        rm.title = "The first line can't be removed \u2014 remove additional lines instead.";
+      } else {
+        rm.onclick = () => removeLine(i - 1);
+      }
+      row.appendChild(rm);
+    }
+    list.appendChild(row);
+  }
+  panel.appendChild(list);
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "btn-add-line";
+  addBtn.textContent = "+ Add reference line";
+  addBtn.onclick = () => addLine();
+  panel.appendChild(addBtn);
+
+  if (total > 1) {
+    const hint = document.createElement("div");
+    hint.className = "field-hint";
+    hint.style.marginTop = "8px";
+    hint.textContent = "Multiple reference lines share one joint, arrow, and tail \u2014 used to show a sequence of operations. Each line has its own weld type, placement, and dimensions.";
+    panel.appendChild(hint);
+  }
+
+  root.appendChild(panel);
+}
+
 function buildJointStep(container) {
   const fs = document.createElement("fieldset");
   fs.innerHTML = `<legend>Select the joint type</legend>`;
@@ -271,11 +308,12 @@ function buildWeldStep(container) {
   const grid = document.createElement("div");
   grid.className = "choice-grid";
   const avail = getAvailableWelds(state.joint, state.showAdvanced);
+  const line = activeLine();
   Object.keys(WELD_TYPES).forEach(key => {
     const b = document.createElement("button");
     b.type = "button";
     const isAvail = avail.includes(key);
-    b.className = "choice-btn" + (state.weld === key ? " selected" : "");
+    b.className = "choice-btn" + (line.weld === key ? " selected" : "");
     b.textContent = WELD_TYPES[key].label + (isAdvancedCombo(state.joint, key) ? " ★" : "");
     b.disabled = !isAvail;
     b.onclick = () => selectWeld(key);
@@ -290,39 +328,11 @@ function buildWeldStep(container) {
   container.appendChild(label);
   document.getElementById("adv-check").onchange = (e) => toggleAdvanced(e.target.checked);
 
-  const compoundLabel = document.createElement("label");
-  compoundLabel.className = "advanced-toggle";
-  compoundLabel.innerHTML = `<input type="checkbox" id="compound-check" ${state.secondaryWeld ? "checked" : ""}> Add a second symbol (compound weld, e.g. bevel + fillet)`;
-  container.appendChild(compoundLabel);
-  document.getElementById("compound-check").onchange = (e) => toggleCompound(e.target.checked);
-
-  if (state.secondaryWeld) {
-    const fs2 = document.createElement("fieldset");
-    fs2.innerHTML = `<legend>Second symbol</legend>`;
-    const grid2 = document.createElement("div");
-    grid2.className = "choice-grid";
-    avail.filter(k => k !== state.weld).forEach(key => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "choice-btn" + (state.secondaryWeld === key ? " selected" : "");
-      b.textContent = WELD_TYPES[key].label + (isAdvancedCombo(state.joint, key) ? " ★" : "");
-      b.onclick = () => selectSecondaryWeld(key);
-      grid2.appendChild(b);
-    });
-    fs2.appendChild(grid2);
-    const hint2 = document.createElement("div");
-    hint2.className = "field-hint";
-    hint2.textContent = "Drawn immediately next to the primary symbol, on the same side of the reference line, with its own dimensions.";
-    fs2.appendChild(hint2);
-    container.appendChild(fs2);
-    setFeedback("Compound symbol: " + WELD_TYPES[state.weld].label + " + " + WELD_TYPES[state.secondaryWeld].label);
-    return;
-  }
-
-  setFeedback(WELD_TYPES[state.weld].note);
+  setFeedback(WELD_TYPES[line.weld].note);
 }
 
 function buildSideStep(container) {
+  const line = activeLine();
   const fs = document.createElement("fieldset");
   fs.innerHTML = `<legend>Weld placement</legend>`;
   const toggle = document.createElement("div");
@@ -336,8 +346,8 @@ function buildSideStep(container) {
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = o.label;
-    b.className = state.side === o.key ? "active" : "";
-    b.disabled = o.key === "double" && !DOUBLE_ALLOWED[state.weld];
+    b.className = line.side === o.key ? "active" : "";
+    b.disabled = o.key === "double" && !DOUBLE_ALLOWED[line.weld];
     b.onclick = () => selectSide(o.key);
     toggle.appendChild(b);
   });
@@ -347,7 +357,7 @@ function buildSideStep(container) {
   const fsArrow = document.createElement("fieldset");
   fsArrow.innerHTML = `<legend>Arrow position on joint</legend>`;
   const hasOverride = !!state.arrowOverrides[state.joint];
-  const needsFace = (state.weld === "bevel" || state.weld === "j" || state.weld === "flarebevel");
+  const needsFace = (line.weld === "bevel" || line.weld === "j" || line.weld === "flarebevel");
   const arrowControls = document.createElement("div");
   arrowControls.className = "arrow-calibrate";
   let defaultHint = "Uses the default root location for this joint.";
@@ -359,6 +369,7 @@ function buildSideStep(container) {
       ${state.calibrating
         ? "Gold circles mark each corner \u2014 click one to snap exactly to it, or click anywhere else for a free position."
         : (hasOverride ? "Arrow position has been customized for this joint." : defaultHint)}
+      ${state.additionalLines.length ? " This arrow and joint are shared by every reference line." : ""}
     </div>`;
   fsArrow.appendChild(arrowControls);
   container.appendChild(fsArrow);
@@ -369,15 +380,15 @@ function buildSideStep(container) {
   fsSymbols.innerHTML = `<legend>Supplementary symbols</legend>`;
   const symWrap = document.createElement("div");
   symWrap.innerHTML = `
-    <label class="dims-toggle"><input type="checkbox" id="toggle-field-weld" ${state.fieldWeld ? "checked" : ""}> Field weld (flag)</label>
-    <label class="dims-toggle"><input type="checkbox" id="toggle-weld-all-around" ${state.weldAllAround ? "checked" : ""}> Weld-all-around (circle)</label>`;
+    <label class="dims-toggle"><input type="checkbox" id="toggle-field-weld" ${line.fieldWeld ? "checked" : ""}> Field weld (flag)</label>
+    <label class="dims-toggle"><input type="checkbox" id="toggle-weld-all-around" ${line.weldAllAround ? "checked" : ""}> Weld-all-around (circle)</label>`;
   fsSymbols.appendChild(symWrap);
   container.appendChild(fsSymbols);
   document.getElementById("toggle-field-weld").onchange = (e) => toggleFieldWeld(e.target.checked);
   document.getElementById("toggle-weld-all-around").onchange = (e) => toggleWeldAllAround(e.target.checked);
 
-  if (state.weld === "fillet" && state.side === "double" &&
-      state.params.length !== undefined && state.params.pitch !== undefined) {
+  if (line.weld === "fillet" && line.side === "double" &&
+      line.params.length !== undefined && line.params.pitch !== undefined) {
     const fsChain = document.createElement("fieldset");
     fsChain.innerHTML = `<legend>Intermittent weld pattern</legend>`;
     const chainToggle = document.createElement("div");
@@ -386,7 +397,7 @@ function buildSideStep(container) {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = v === "chain" ? "Chain" : "Staggered";
-      b.className = state.chainStagger === v ? "active" : "";
+      b.className = line.chainStagger === v ? "active" : "";
       b.onclick = () => setChainStagger(v);
       chainToggle.appendChild(b);
     });
@@ -404,7 +415,7 @@ function buildSideStep(container) {
   tailGroup.className = "field-group tail-input";
   tailGroup.innerHTML = `<label for="tail-text">Process / spec note</label>
     <input type="text" id="tail-text" placeholder="e.g. FCAW, D1.1" value="${state.tailText}">
-    <div class="field-hint">Shown as an open V at the end of the reference line. The diagram widens automatically for longer notes. Leave blank to omit the tail entirely.</div>`;
+    <div class="field-hint">Shown as an open V at the end of the reference line${state.additionalLines.length ? " stack" : ""}. The diagram widens automatically for longer notes. Leave blank to omit the tail entirely.</div>`;
   fs2.appendChild(tailGroup);
   container.appendChild(fs2);
   document.getElementById("tail-text").oninput = (e) => setTail(e.target.value);
@@ -450,17 +461,12 @@ function buildDimensionsFieldset(weldKey, params, touched, selectedVar, setFn, f
 }
 
 function buildParamsStep(container) {
+  const line = activeLine();
   container.appendChild(buildDimensionsFieldset(
-    state.weld, state.params, state.touchedParams, state.selectedVariable,
-    setParam, finalizeParam, state.secondaryWeld ? "Dimensions \u2014 primary symbol" : "Dimensions"
+    line.weld, line.params, line.touchedParams, line.selectedVariable,
+    setParam, finalizeParam, "Dimensions"
   ));
-  if (state.secondaryWeld) {
-    container.appendChild(buildDimensionsFieldset(
-      state.secondaryWeld, state.secondaryParams, state.secondaryTouched, null,
-      setSecondaryParam, finalizeSecondaryParam, "Dimensions \u2014 second symbol"
-    ));
-  }
-  setFeedback(state.weld === "square"
+  setFeedback(line.weld === "square"
     ? "Square grooves have no angle or root face — just a root opening. Best suited to thin material."
     : "A Weld Depth of 0 indicates complete joint penetration (CJP) — the default assumption unless a partial depth is specified.");
 }
@@ -473,9 +479,10 @@ function setFeedback(text) {
 
 // ---------- Render ----------
 function renderVisual() {
+  const line = activeLine();
   document.getElementById("tb-joint").textContent = JOINT_TYPES[state.joint].label;
-  document.getElementById("tb-weld").textContent = WELD_TYPES[state.weld].label;
-  document.getElementById("tb-side").textContent = { arrow: "Arrow side", other: "Other side", double: "Double" }[state.side];
+  document.getElementById("tb-weld").textContent = WELD_TYPES[line.weld].label + (state.additionalLines.length ? " (Line " + (state.activeLine + 1) + ")" : "");
+  document.getElementById("tb-side").textContent = { arrow: "Arrow side", other: "Other side", double: "Double" }[line.side];
   document.querySelector(".sheet").classList.toggle("calibrating", state.calibrating);
   const svg = document.getElementById("symbol-svg");
   try {
@@ -499,6 +506,7 @@ function renderVisual() {
 }
 
 function render() {
+  buildLinesPanel();
   const root = document.getElementById("panel-root");
   root.innerHTML = "";
 
