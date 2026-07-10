@@ -25,7 +25,17 @@ const STEP_LABELS = ["Joint", "Weld Type", "Placement", "Dimensions"];
 
 function initParams(weldKey) {
   const p = {};
-  WELD_TYPES[weldKey].params.forEach(key => { p[key] = PARAM_DEFS[key].default; });
+  WELD_TYPES[weldKey].params.forEach(key => {
+    const def = PARAM_DEFS[key];
+    if (!def) {
+      // A param key with no matching definition means the data/render/app
+      // files are out of sync (e.g. only one file got re-deployed). Skip it
+      // instead of throwing, so the rest of the symbol still renders.
+      console.error(`No PARAM_DEFS entry for "${key}" (weld "${weldKey}") — check that all files are the same version.`);
+      return;
+    }
+    p[key] = def.default;
+  });
   state.params = p;
   if (state.selectedVariable && !WELD_TYPES[weldKey].params.includes(state.selectedVariable)) {
     state.selectedVariable = null;
@@ -294,6 +304,7 @@ function buildParamsStep(container) {
   fs.innerHTML = `<legend>Dimensions</legend>`;
   WELD_TYPES[state.weld].params.forEach(key => {
     const def = PARAM_DEFS[key];
+    if (!def) return; // version-mismatch guard, matches initParams
     const val = state.params[key];
     const group = document.createElement("div");
     group.className = "field-group" + (state.selectedVariable === key ? " var-highlight" : "");
