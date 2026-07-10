@@ -39,7 +39,9 @@ const PARAM_DEFS = {
                     { value: "R", label: "R \u2014 Rolling" },
                     { value: "H", label: "H \u2014 Hammering" }
                   ],
-                  hint: "Method used to obtain the contour. Sits above the contour symbol \u2014 the outermost element on the symbol." }
+                  hint: "Method used to obtain the contour. Sits above the contour symbol \u2014 the outermost element on the symbol." },
+  weldCount:    { label: "Number of Welds (N)", unit: "", default: 1, min: 1, max: 50, step: 1,
+                  hint: "Number of spot, seam, stud, plug, or slot welds. Shown in parentheses near the reference line." }
 };
 
 const WELD_TYPES = {
@@ -63,7 +65,16 @@ const WELD_TYPES = {
             note: "Only one member has a curved face — like a bevel groove, note the arrow break." },
   flarebevel: { label: "Flare Bevel Groove", glyph: "flarebevel",
             params: ["contourSymbol", "finishSymbol", "grooveSize", "weldDepth", "grooveRadius"],
-            note: "One flat member against a curved/round member (e.g. bar stock or pipe) — note the arrow break, same as bevel and J." }
+            note: "One flat member against a curved/round member (e.g. bar stock or pipe) — note the arrow break, same as bevel and J." },
+  plugslot: { label: "Plug / Slot Weld", glyph: "plugslot",
+            params: ["grooveSize", "grooveAngle", "rootOpening", "length", "pitch", "weldCount", "contourSymbol", "finishSymbol"],
+            note: "Fills a round (plug) or elongated (slot) hole in the top member to fuse it to the one beneath — used on lap joints. Groove angle doubles as the countersink angle; root opening doubles as depth of fill, per AWS convention." },
+  spot:   { label: "Spot Weld", glyph: "spot",
+            params: ["grooveSize", "pitch", "weldCount", "contourSymbol", "finishSymbol"],
+            note: "A localized fusion spot through overlapping sheets (e.g. resistance spot welding) — no arrow/other-side distinction is typically used." },
+  seam:   { label: "Seam Weld", glyph: "seam",
+            params: ["grooveSize", "length", "pitch", "weldCount", "contourSymbol", "finishSymbol"],
+            note: "A continuous line of fusion along overlapping sheets (e.g. resistance seam welding) — the circle-with-line symbol." }
 };
 
 // Which welds are valid (and which are "rare" / advanced-only) per joint type.
@@ -72,18 +83,20 @@ const JOINT_TYPES = {
             desc: "Two members in the same plane, edge to edge." },
   tjoint: { label: "T-Joint",      welds: ["fillet", "bevel", "j"], advancedWelds: ["v", "u", "flarebevel"],
             desc: "One member perpendicular to another, forming a T." },
-  lap:    { label: "Lap Joint",    welds: ["fillet"], advancedWelds: [],
+  lap:    { label: "Lap Joint",    welds: ["fillet", "plugslot", "spot", "seam"], advancedWelds: [],
             desc: "Two overlapping members." },
   corner: { label: "Corner Joint", welds: ["fillet", "square", "v", "bevel", "j", "flarebevel"], advancedWelds: ["u"],
             desc: "Two members meeting at an angle, typically 90°, at their edges." },
-  edge:   { label: "Edge Joint",   welds: ["square", "v"], advancedWelds: [],
+  edge:   { label: "Edge Joint",   welds: ["square", "v"], advancedWelds: ["spot", "seam"],
             desc: "Two parallel (or near-parallel) members joined along their edges." }
 };
 
 // Doubling is only meaningful for groove welds and fillets on joints where
-// weld metal can be placed from both sides of the reference line.
+// weld metal can be placed from both sides of the reference line. Plug,
+// spot, and seam welds are typically single-sided by nature.
 const DOUBLE_ALLOWED = {
-  fillet: true, square: true, v: true, bevel: true, u: true, j: true, flarebevel: true
+  fillet: true, square: true, v: true, bevel: true, u: true, j: true, flarebevel: true,
+  plugslot: false, spot: false, seam: false
 };
 
 function getAvailableWelds(jointKey, showAdvanced) {
