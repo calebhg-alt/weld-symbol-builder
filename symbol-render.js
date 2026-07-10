@@ -58,15 +58,18 @@ function wrapText(str, maxWidth, fontSize) {
 }
 
 // ---------- Background blueprint grid ----------
-function buildGrid(width) {
+function buildGrid(width, top, height) {
+  top = top === undefined ? 0 : top;
+  height = height === undefined ? SHEET_HEIGHT : height;
+  const bottom = top + height;
   const g = el("g", { "aria-hidden": "true" });
   for (let x = 0; x <= width; x += 30) {
-    g.appendChild(el("line", { x1: x, y1: 0, x2: x, y2: SHEET_HEIGHT, stroke: "rgba(255,255,255,0.06)", "stroke-width": 1 }));
+    g.appendChild(el("line", { x1: x, y1: top, x2: x, y2: bottom, stroke: "rgba(255,255,255,0.06)", "stroke-width": 1 }));
   }
-  for (let y = 0; y <= SHEET_HEIGHT; y += 30) {
+  for (let y = Math.ceil(top / 30) * 30; y <= bottom; y += 30) {
     g.appendChild(el("line", { x1: 0, y1: y, x2: width, y2: y, stroke: "rgba(255,255,255,0.06)", "stroke-width": 1 }));
   }
-  g.appendChild(el("rect", { x: 6, y: 6, width: width - 12, height: SHEET_HEIGHT - 12, fill: "none", stroke: "rgba(255,255,255,0.22)", "stroke-width": 1.5 }));
+  g.appendChild(el("rect", { x: 6, y: top + 6, width: width - 12, height: height - 12, fill: "none", stroke: "rgba(255,255,255,0.22)", "stroke-width": 1.5 }));
   return g;
 }
 
@@ -327,98 +330,103 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
 }
 
 // ---------- Reference line, arrow, tail ----------
-function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey) {
+// Draws ONE reference line segment. The arrow (to seamPt) is only drawn
+// when seamPt is passed (the bottom line); the tail is only drawn when
+// tailText is passed (the top line) — every other line is just its own
+// horizontal segment, connected to its neighbors by a diagonal elsewhere.
+function buildOneReferenceLine(lineX1, lineY, lineX2, seamPt, weldKey, jointKey, tailText, flagState) {
   const g = el("g", {});
-  g.appendChild(el("line", { x1: LINE_X1, y1: LINE_Y, x2: lineX2, y2: LINE_Y, stroke: "#E8EEF5", "stroke-width": 2.5 }));
+  g.appendChild(el("line", { x1: lineX1, y1: lineY, x2: lineX2, y2: lineY, stroke: "#E8EEF5", "stroke-width": 2.5 }));
 
-  // arrow from left end of reference line to the joint seam
-  const ax1 = LINE_X1, ay1 = LINE_Y;
-  const ax2 = seamPt.x, ay2 = seamPt.y;
+  if (seamPt) {
+    const ax1 = lineX1, ay1 = lineY;
+    const ax2 = seamPt.x, ay2 = seamPt.y;
 
-  // Weld-all-around: hollow circle at the junction of the arrow and the reference line.
-  if (state.weldAllAround) {
-    g.appendChild(el("circle", { cx: ax1, cy: ay1, r: 7, fill: "none", stroke: "#E8EEF5", "stroke-width": 2 }));
-  }
-  // Field weld: small filled pennant flag at the same junction.
-  if (state.fieldWeld) {
-    g.appendChild(el("polygon", {
-      points: `${ax1},${ay1 - 8} ${ax1 + 16},${ay1 - 20} ${ax1},${ay1 - 20}`,
-      fill: "#E8EEF5"
-    }));
-    g.appendChild(el("line", { x1: ax1, y1: ay1 - 8, x2: ax1, y2: ay1 - 20, stroke: "#E8EEF5", "stroke-width": 1.5 }));
-  }
+    // Weld-all-around: hollow circle at the junction of the arrow and the reference line.
+    if (flagState.weldAllAround) {
+      g.appendChild(el("circle", { cx: ax1, cy: ay1, r: 7, fill: "none", stroke: "#E8EEF5", "stroke-width": 2 }));
+    }
+    // Field weld: small filled pennant flag at the same junction.
+    if (flagState.fieldWeld) {
+      g.appendChild(el("polygon", {
+        points: `${ax1},${ay1 - 8} ${ax1 + 16},${ay1 - 20} ${ax1},${ay1 - 20}`,
+        fill: "#E8EEF5"
+      }));
+      g.appendChild(el("line", { x1: ax1, y1: ay1 - 8, x2: ax1, y2: ay1 - 20, stroke: "#E8EEF5", "stroke-width": 1.5 }));
+    }
 
-  // For bevel/J-groove/flare-bevel, pull the actual endpoint back from the
-  // corner by a small fixed distance along the approach direction. The
-  // arrow still clearly points AT the corner (the trajectory aims straight
-  // at it) but the drawn tip stops just short — so it never touches the
-  // plate at all, which sidesteps overlap concerns entirely rather than
-  // needing to route flush against the boundary.
-  const needsBreak = (weldKey === "bevel" || weldKey === "j" || weldKey === "flarebevel");
-  let ex2 = ax2, ey2 = ay2;
-  if (needsBreak) {
-    const ddx = ax2 - ax1, ddy = ay2 - ay1;
-    const dlen = Math.hypot(ddx, ddy) || 1;
-    const pullback = 14;
-    ex2 = ax2 - (ddx / dlen) * pullback;
-    ey2 = ay2 - (ddy / dlen) * pullback;
-  }
+    // For bevel/J-groove/flare-bevel, pull the actual endpoint back from the
+    // corner by a small fixed distance along the approach direction. The
+    // arrow still clearly points AT the corner (the trajectory aims straight
+    // at it) but the drawn tip stops just short — so it never touches the
+    // plate at all, which sidesteps overlap concerns entirely rather than
+    // needing to route flush against the boundary.
+    const needsBreak = (weldKey === "bevel" || weldKey === "j" || weldKey === "flarebevel");
+    let ex2 = ax2, ey2 = ay2;
+    if (needsBreak) {
+      const ddx = ax2 - ax1, ddy = ay2 - ay1;
+      const dlen = Math.hypot(ddx, ddy) || 1;
+      const pullback = 14;
+      ex2 = ax2 - (ddx / dlen) * pullback;
+      ey2 = ay2 - (ddy / dlen) * pullback;
+    }
 
-  // Route the arrow around any plate it would otherwise cut across. Runs
-  // fresh on every render, so a calibrated (dragged) arrow position or a
-  // joint switch both re-route automatically — nothing to fix by hand.
-  const path = computeArrowPath(ax1, ay1, ex2, ey2, jointKey);
+    // Route the arrow around any plate it would otherwise cut across. Runs
+    // fresh on every render, so a calibrated (dragged) arrow position or a
+    // joint switch both re-route automatically — nothing to fix by hand.
+    const path = computeArrowPath(ax1, ay1, ex2, ey2, jointKey);
 
-  // Broken/bent leader line: required whenever only ONE member of the joint
-  // is prepared (bevel, J-groove, flare-bevel) — the bend points the arrow
-  // specifically at that member instead of running straight to the root.
-  // Applied to the FINAL segment of the routed path (closest to the
-  // arrowhead), so it still reads correctly even when the path also had to
-  // detour around a plate.
-  let finalSegStart = path[path.length - 2];
-  const finalSegEnd = path[path.length - 1];
-  let points = path.map(p => `${p.x},${p.y}`);
+    // Broken/bent leader line: required whenever only ONE member of the joint
+    // is prepared (bevel, J-groove, flare-bevel) — the bend points the arrow
+    // specifically at that member instead of running straight to the root.
+    // Applied to the FINAL segment of the routed path (closest to the
+    // arrowhead), so it still reads correctly even when the path also had to
+    // detour around a plate.
+    let finalSegStart = path[path.length - 2];
+    const finalSegEnd = path[path.length - 1];
+    let points = path.map(p => `${p.x},${p.y}`);
 
-  if (needsBreak) {
-    const t = 0.62; // bend sits closer to the arrowhead than the previous point
-    const midX = finalSegStart.x + (finalSegEnd.x - finalSegStart.x) * t;
-    const midY = finalSegStart.y + (finalSegEnd.y - finalSegStart.y) * t;
-    const dx = finalSegEnd.x - finalSegStart.x, dy = finalSegEnd.y - finalSegStart.y;
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    const bendOffset = 22;
-    const bendX = midX + (-dy / len) * bendOffset;
-    const bendY = midY + (dx / len) * bendOffset;
-    points = path.slice(0, -1).map(p => `${p.x},${p.y}`).concat([`${bendX},${bendY}`, `${finalSegEnd.x},${finalSegEnd.y}`]);
-    finalSegStart = { x: bendX, y: bendY };
-  }
+    if (needsBreak) {
+      const t = 0.62; // bend sits closer to the arrowhead than the previous point
+      const midX = finalSegStart.x + (finalSegEnd.x - finalSegStart.x) * t;
+      const midY = finalSegStart.y + (finalSegEnd.y - finalSegStart.y) * t;
+      const dx = finalSegEnd.x - finalSegStart.x, dy = finalSegEnd.y - finalSegStart.y;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      const bendOffset = 22;
+      const bendX = midX + (-dy / len) * bendOffset;
+      const bendY = midY + (dx / len) * bendOffset;
+      points = path.slice(0, -1).map(p => `${p.x},${p.y}`).concat([`${bendX},${bendY}`, `${finalSegEnd.x},${finalSegEnd.y}`]);
+      finalSegStart = { x: bendX, y: bendY };
+    }
 
-  g.appendChild(el("polyline", { points: points.join(" "), fill: "none", stroke: "#E8EEF5", "stroke-width": 2.5 }));
+    g.appendChild(el("polyline", { points: points.join(" "), fill: "none", stroke: "#E8EEF5", "stroke-width": 2.5 }));
 
-  // arrowhead — angled to match the actual final approach direction, not
-  // the start-to-end direction, so it's still correct after routing/bending.
-  const angle = Math.atan2(finalSegEnd.y - finalSegStart.y, finalSegEnd.x - finalSegStart.x);
-  const ah1x = ex2 - 14 * Math.cos(angle - 0.35), ah1y = ey2 - 14 * Math.sin(angle - 0.35);
-  const ah2x = ex2 - 14 * Math.cos(angle + 0.35), ah2y = ey2 - 14 * Math.sin(angle + 0.35);
-  g.appendChild(el("polygon", { points: `${ex2},${ey2} ${ah1x},${ah1y} ${ah2x},${ah2y}`, fill: "#E8EEF5" }));
+    // arrowhead — angled to match the actual final approach direction, not
+    // the start-to-end direction, so it's still correct after routing/bending.
+    const angle = Math.atan2(finalSegEnd.y - finalSegStart.y, finalSegEnd.x - finalSegStart.x);
+    const ah1x = ex2 - 14 * Math.cos(angle - 0.35), ah1y = ey2 - 14 * Math.sin(angle - 0.35);
+    const ah2x = ex2 - 14 * Math.cos(angle + 0.35), ah2y = ey2 - 14 * Math.sin(angle + 0.35);
+    g.appendChild(el("polygon", { points: `${ex2},${ey2} ${ah1x},${ah1y} ${ah2x},${ah2y}`, fill: "#E8EEF5" }));
 
-  // Calibration crosshair — only shown while the person is actively placing the arrow.
-  if (state.calibrating) {
-    g.appendChild(el("circle", { cx: ax2, cy: ay2, r: 9, fill: "none", stroke: "#F2C744", "stroke-width": 2, "stroke-dasharray": "3 3" }));
-    g.appendChild(el("line", { x1: ax2 - 14, y1: ay2, x2: ax2 + 14, y2: ay2, stroke: "#F2C744", "stroke-width": 1.5 }));
-    g.appendChild(el("line", { x1: ax2, y1: ay2 - 14, x2: ax2, y2: ay2 + 14, stroke: "#F2C744", "stroke-width": 1.5 }));
+    // Calibration crosshair — only shown while the person is actively placing the arrow.
+    if (state.calibrating) {
+      g.appendChild(el("circle", { cx: ax2, cy: ay2, r: 9, fill: "none", stroke: "#F2C744", "stroke-width": 2, "stroke-dasharray": "3 3" }));
+      g.appendChild(el("line", { x1: ax2 - 14, y1: ay2, x2: ax2 + 14, y2: ay2, stroke: "#F2C744", "stroke-width": 1.5 }));
+      g.appendChild(el("line", { x1: ax2, y1: ay2 - 14, x2: ax2, y2: ay2 + 14, stroke: "#F2C744", "stroke-width": 1.5 }));
+    }
   }
 
   // tail
-  if (hasTail && tailText) {
-    g.appendChild(el("line", { x1: lineX2, y1: LINE_Y, x2: lineX2 + 46, y2: LINE_Y - 10, stroke: "#E8EEF5", "stroke-width": 2 }));
-    g.appendChild(el("line", { x1: lineX2, y1: LINE_Y, x2: lineX2 + 46, y2: LINE_Y + 10, stroke: "#E8EEF5", "stroke-width": 2 }));
+  if (tailText) {
+    g.appendChild(el("line", { x1: lineX2, y1: lineY, x2: lineX2 + 46, y2: lineY - 10, stroke: "#E8EEF5", "stroke-width": 2 }));
+    g.appendChild(el("line", { x1: lineX2, y1: lineY, x2: lineX2 + 46, y2: lineY + 10, stroke: "#E8EEF5", "stroke-width": 2 }));
     const textStartX = lineX2 + 54;
     const maxLineWidth = BASE_WIDTH - 24 - textStartX;
     const lines = wrapText(tailText, maxLineWidth, 14);
     const lineHeight = 18;
     // Center the stacked lines vertically on the reference line, like a
     // multi-line caption, rather than always starting from the line itself.
-    const startY = LINE_Y + 5 - ((lines.length - 1) * lineHeight) / 2;
+    const startY = lineY + 5 - ((lines.length - 1) * lineHeight) / 2;
     lines.forEach((line, i) => {
       g.appendChild(textEl(textStartX, startY + i * lineHeight, line, { size: 14, weight: 500 }));
     });
@@ -432,19 +440,6 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey
 // the glyph (the "S(E)" position), length-pitch to the right ("L-P"), groove
 // angle at the vertex ("A"), root opening/face and groove radius stacked
 // just beyond the open end of the glyph ("R").
-// Rough estimate of how far a glyph's full footprint extends from the
-// reference line — including its own dimension labels, not just the shape
-// itself — used to stack a compound secondary symbol cleanly beyond
-// everything the primary draws, not just its line-work.
-function glyphCoreDepth(weldKey, params) {
-  if (weldKey === "fillet") {
-    const sizePx = 18 + ((params.size || 0.25) / 1.5) * 55;
-    return sizePx + 38; // matches where fillet's own contour/finish sit
-  }
-  if (weldKey === "square") return 84; // rootOpening(44) + contour/finish(64-84)
-  return 90; // v/bevel/u/j/flarebevel: own labels extend to ~DEPTH+70-88
-}
-
 function buildGlyph(weldKey, cx, dir, params, repeatInfo, interactive, baseY) {
   interactive = interactive === undefined ? true : interactive;
   const g = el("g", {});
@@ -708,13 +703,23 @@ function addContourFinish(g, cx, dir, params, color, contourY, finishY) {
 }
 
 // ---------- Master render ----------
+const LINE_STEP_Y = 46; // vertical rise per additional reference line
+const LINE_STEP_X = 40; // horizontal shift per additional reference line (keeps the connector near 45°)
+
 function renderSymbol(svg, appState) {
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-  // Fixed sheet size always — only the reference line's length changes to
-  // make room for a long tail note. The weld symbol itself never resizes.
-  svg.setAttribute("viewBox", `0 0 ${BASE_WIDTH} ${SHEET_HEIGHT}`);
-  svg.appendChild(buildGrid(BASE_WIDTH));
+  const additional = appState.additionalLines || [];
+  const numLines = 1 + additional.length;
+
+  // The sheet grows upward to fit a stack of reference lines — the joint,
+  // grid, and everything else stay at their normal coordinates; only the
+  // viewBox's top edge moves to include the extra lines above it.
+  const topLineY = LINE_Y - (numLines - 1) * LINE_STEP_Y;
+  const viewBoxTop = Math.min(0, topLineY - 40);
+  const viewBoxHeight = SHEET_HEIGHT - viewBoxTop;
+  svg.setAttribute("viewBox", `0 ${viewBoxTop} ${BASE_WIDTH} ${viewBoxHeight}`);
+  svg.appendChild(buildGrid(BASE_WIDTH, viewBoxTop, viewBoxHeight));
   svg.appendChild(buildJointIllustration(appState.joint));
 
   // Snap-point markers — only shown while actively calibrating, so they
@@ -730,48 +735,73 @@ function renderSymbol(svg, appState) {
 
   const MIN_LINE_X2 = 580; // floor so the line never retracts into the glyph area
   const tailW = appState.tailText ? estimateTextWidth(appState.tailText, 14) : 0;
-  let lineX2 = LINE_X2;
+  let lineX2Base = LINE_X2;
   if (appState.tailText) {
     const desired = BASE_WIDTH - 30 - 54 - tailW;
-    lineX2 = Math.max(MIN_LINE_X2, Math.min(LINE_X2, desired));
+    lineX2Base = Math.max(MIN_LINE_X2, Math.min(LINE_X2, desired));
   }
 
   const seamPt = getEffectiveSeam(appState.joint);
-  svg.appendChild(buildReferenceLine(!!appState.tailText, appState.tailText, appState.weld, lineX2, seamPt, appState.joint));
+  const allLines = [appState].concat(additional);
 
-  const glyphCx = LINE_X1 + 130;
-  // Chain vs. staggered only applies to a double-sided intermittent fillet —
-  // chain repeats the same spacing on both sides, staggered offsets the
-  // other side by half the spacing so segments don't align.
-  let arrowRepeat = null, otherRepeat = null;
-  if (appState.weld === "fillet" && appState.side === "double" &&
-      appState.params.length !== undefined && appState.params.pitch !== undefined) {
-    const spacing = 48;
-    arrowRepeat = { offsets: [-spacing, 0, spacing] };
-    const shift = appState.chainStagger === "staggered" ? spacing / 2 : 0;
-    otherRepeat = { offsets: [-spacing + shift, shift, spacing + shift] };
-  }
-  if (appState.side === "arrow" || appState.side === "double") {
-    svg.appendChild(buildGlyph(appState.weld, glyphCx, 1, appState.params, arrowRepeat));
-  }
-  if (appState.side === "other" || appState.side === "double") {
-    svg.appendChild(buildGlyph(appState.weld, glyphCx, -1, appState.params, otherRepeat));
-  }
+  // Draw each reference line (bottom = line 0, closest to the arrow/joint;
+  // each subsequent line steps up and to the right, connected by a short
+  // diagonal — the arrow attaches only to the bottom line, the tail only to
+  // the top one, matching standard multi-operation AWS symbol layout.
+  for (let i = 0; i < allLines.length; i++) {
+    const lineData = allLines[i];
+    const thisLineY = LINE_Y - i * LINE_STEP_Y;
+    const thisLineX1 = LINE_X1 + i * LINE_STEP_X;
+    const thisLineX2 = lineX2Base + i * LINE_STEP_X;
+    const isBottom = i === 0;
+    const isTop = i === allLines.length - 1;
+    const isActive = i === appState.activeLine;
 
-  // Compound symbol: reference line, then the primary (groove) symbol, then
-  // the secondary (typically fillet) symbol stacked immediately beyond it —
-  // both anchored at the same position on the line, reading outward, per
-  // real AWS combination-weld convention (not spread out side by side).
-  // No gap between them: the secondary's base connects directly to the
-  // primary's outer edge, so it reads as one continuous stacked symbol.
-  if (appState.secondaryWeld && appState.secondaryParams) {
-    if (appState.side === "arrow" || appState.side === "double") {
-      const primaryDepth = glyphCoreDepth(appState.weld, appState.params);
-      svg.appendChild(buildGlyph(appState.secondaryWeld, glyphCx, 1, appState.secondaryParams, null, false, LINE_Y + primaryDepth));
+    svg.appendChild(buildOneReferenceLine(
+      thisLineX1, thisLineY, thisLineX2,
+      isBottom ? seamPt : null,
+      isBottom ? lineData.weld : null,
+      isBottom ? appState.joint : null,
+      isTop && appState.tailText ? appState.tailText : null,
+      isBottom ? appState : null
+    ));
+    // Diagonal connector up to the next line.
+    if (i < allLines.length - 1) {
+      const nextY = LINE_Y - (i + 1) * LINE_STEP_Y;
+      const nextX1 = LINE_X1 + (i + 1) * LINE_STEP_X;
+      svg.appendChild(el("line", { x1: thisLineX1, y1: thisLineY, x2: nextX1, y2: nextY, stroke: "#E8EEF5", "stroke-width": 2.5 }));
     }
-    if (appState.side === "other" || appState.side === "double") {
-      const primaryDepth = glyphCoreDepth(appState.weld, appState.params);
-      svg.appendChild(buildGlyph(appState.secondaryWeld, glyphCx, -1, appState.secondaryParams, null, false, LINE_Y - primaryDepth));
+
+    const glyphCx = thisLineX1 + 130;
+    let arrowRepeat = null, otherRepeat = null;
+    if (lineData.weld === "fillet" && lineData.side === "double" &&
+        lineData.params.length !== undefined && lineData.params.pitch !== undefined) {
+      const spacing = 48;
+      arrowRepeat = { offsets: [-spacing, 0, spacing] };
+      const shift = lineData.chainStagger === "staggered" ? spacing / 2 : 0;
+      otherRepeat = { offsets: [-spacing + shift, shift, spacing + shift] };
+    }
+
+    // Only the active line's glyph is interactive (clickable labels with
+    // real DOM ids matching the Dimensions panel) — other lines render
+    // plain text, since their param keys would otherwise collide with the
+    // active line's identically-named DOM ids.
+    let savedTouched, savedSelected;
+    if (isActive) {
+      savedTouched = state.touchedParams;
+      savedSelected = state.selectedVariable;
+      state.touchedParams = lineData.touchedParams;
+      state.selectedVariable = lineData.selectedVariable;
+    }
+    if (lineData.side === "arrow" || lineData.side === "double") {
+      svg.appendChild(buildGlyph(lineData.weld, glyphCx, 1, lineData.params, arrowRepeat, isActive, thisLineY));
+    }
+    if (lineData.side === "other" || lineData.side === "double") {
+      svg.appendChild(buildGlyph(lineData.weld, glyphCx, -1, lineData.params, otherRepeat, isActive, thisLineY));
+    }
+    if (isActive) {
+      state.touchedParams = savedTouched;
+      state.selectedVariable = savedSelected;
     }
   }
 
