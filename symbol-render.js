@@ -262,6 +262,10 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   }
 
   const OUT = 22;
+  const corners = [
+    { x: maxX + OUT, y: maxY + OUT }, { x: minX - OUT, y: maxY + OUT },
+    { x: maxX + OUT, y: minY - OUT }, { x: minX - OUT, y: minY - OUT }
+  ];
 
   // Below-right, below-left, above-right, above-left — below tried first.
   // For each direction, try a shrinking sequence of 45-degree distances
@@ -277,15 +281,33 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
       // Try reaching the 45-degree point directly from the reference line first.
       const direct = [{ x: ax1, y: ay1 }, { x: fx, y: fy }, { x: seamX, y: seamY }];
       if (pathClear(direct)) return direct;
-      // Otherwise route via the bounding-box corner on the matching side first.
-      const cornerX = dir.dx > 0 ? maxX + OUT : minX - OUT;
-      const cornerY = dir.dy > 0 ? maxY + OUT : minY - OUT;
-      const viaCorner = [{ x: ax1, y: ay1 }, { x: cornerX, y: cornerY }, { x: fx, y: fy }, { x: seamX, y: seamY }];
-      if (pathClear(viaCorner)) return viaCorner;
+      // Otherwise try routing via each bounding-box corner in turn — not just
+      // the "matching" one — since a tight spot (like two overlapping plates
+      // at a lap joint) can block the obvious corner while another works fine.
+      for (const c of corners) {
+        const viaCorner = [{ x: ax1, y: ay1 }, c, { x: fx, y: fy }, { x: seamX, y: seamY }];
+        if (pathClear(viaCorner)) return viaCorner;
+      }
     }
   }
 
-  // Last resort (very rare): an axis-aligned elbow, whatever is clear.
+  // Last resort (very rare): still enforce a clean 45-degree final segment —
+  // find whichever bounding-box corner gives a clear two-elbow route, using
+  // the shortest 45-degree distance as the final approach either way, so it
+  // never falls back to the old axis-aligned "L" hook.
+  for (const D of distances) {
+    for (const dir of directions) {
+      const fx = seamX + dir.dx * D, fy = seamY + dir.dy * D;
+      for (const c of corners) {
+        for (const c2 of corners) {
+          const twoElbow = [{ x: ax1, y: ay1 }, c, c2, { x: fx, y: fy }, { x: seamX, y: seamY }];
+          if (pathClear(twoElbow)) return twoElbow;
+        }
+      }
+    }
+  }
+
+  // Absolute fallback (should not happen in practice): axis-aligned elbow.
   const waypoints = [
     { x: seamX, y: minY - OUT }, { x: seamX, y: maxY + OUT },
     { x: minX - OUT, y: seamY }, { x: maxX + OUT, y: seamY }
@@ -410,7 +432,8 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey
 // the glyph (the "S(E)" position), length-pitch to the right ("L-P"), groove
 // angle at the vertex ("A"), root opening/face and groove radius stacked
 // just beyond the open end of the glyph ("R").
-function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
+function buildGlyph(weldKey, cx, dir, params, repeatInfo, interactive) {
+  interactive = interactive === undefined ? true : interactive;
   const g = el("g", {});
   const lineY = LINE_Y;
   const DEPTH = 50;
@@ -420,9 +443,17 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
 
   // When dimensions are hidden, every callout becomes a no-op — only the
   // glyph line-work itself is drawn, sitting bare on the reference line.
+  // Non-interactive glyphs (compound symbol's secondary weld) always show
+  // their actual value in plain text rather than the clickable letter
+  // placeholder — their params don't have unique DOM ids to jump to, so the
+  // click-to-edit affordance wouldn't work correctly anyway.
   function addLabel(key, x, y, str, opts) {
     if (state.showDimensions === false) return;
-    g.appendChild(paramLabel(key, x, y, str, opts));
+    if (interactive) {
+      g.appendChild(paramLabel(key, x, y, str, opts));
+    } else {
+      g.appendChild(textEl(x, y, str, opts));
+    }
   }
   function addPlain(x, y, str, opts) {
     if (state.showDimensions === false) return;
@@ -430,7 +461,16 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
   }
   function addContourFinishIfShown(cx2, dir2, color, contourY, finishY) {
     if (state.showDimensions === false) return;
-    addContourFinish(g, cx2, dir2, params, color, contourY, finishY);
+    if (interactive) {
+      addContourFinish(g, cx2, dir2, params, color, contourY, finishY);
+    } else {
+      if (params.contourSymbol && params.contourSymbol !== "none") {
+        g.appendChild(el("g", {}, contourShapeElements(cx2, contourY, params.contourSymbol, color, dir2)));
+      }
+      if (params.finishSymbol && params.finishSymbol !== "none") {
+        g.appendChild(textEl(cx2, finishY, params.finishSymbol, { anchor: "middle", fill: color, size: 13 }));
+      }
+    }
   }
   // S(E): groove weld size and effective throat shown side by side, one in
   // parentheses, on the reference line to the left of the glyph — per the
@@ -703,6 +743,22 @@ function renderSymbol(svg, appState) {
   }
   if (appState.side === "other" || appState.side === "double") {
     svg.appendChild(buildGlyph(appState.weld, glyphCx, -1, appState.params, otherRepeat));
+  }
+
+  // Compound symbol: a second glyph immediately beside the primary one, on
+  // the same side(s) of the line, with its own independent dimensions.
+  // Rendered non-interactively (plain labels, not clickable) — its params
+  // share key names with the primary's, so making them separately
+  // clickable would require id-namespacing the whole panel for no real
+  // benefit, since compound symbols are a secondary/occasional feature.
+  if (appState.secondaryWeld && appState.secondaryParams) {
+    const secondaryCx = glyphCx + 150;
+    if (appState.side === "arrow" || appState.side === "double") {
+      svg.appendChild(buildGlyph(appState.secondaryWeld, secondaryCx, 1, appState.secondaryParams, null, false));
+    }
+    if (appState.side === "other" || appState.side === "double") {
+      svg.appendChild(buildGlyph(appState.secondaryWeld, secondaryCx, -1, appState.secondaryParams, null, false));
+    }
   }
 
   // joint label near illustration
