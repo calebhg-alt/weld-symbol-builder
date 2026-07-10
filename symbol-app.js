@@ -18,7 +18,10 @@ const state = {
   fieldWeld: false,
   weldAllAround: false,
   chainStagger: "chain",
-  touchedParams: {}
+  touchedParams: {},
+  secondaryWeld: null,      // weld key, or null if no compound symbol
+  secondaryParams: {},
+  secondaryTouched: {}
 };
 
 const STEP_COUNT = 4;
@@ -37,13 +40,57 @@ function initParams(weldKey) {
     }
     p[key] = def.default;
   });
-  state.params = p;
-  state.touchedParams = {};
-  if (state.selectedVariable && !WELD_TYPES[weldKey].params.includes(state.selectedVariable)) {
-    state.selectedVariable = null;
+  return p;
+}
+
+// A compound symbol pairs a second weld glyph with the primary one on the
+// same side of the line — e.g. a bevel groove with a reinforcing fillet.
+// Real AWS practice; most joints don't need it, so it's off by default.
+function toggleCompound(on) {
+  if (on) {
+    const avail = getAvailableWelds(state.joint, state.showAdvanced).filter(k => k !== state.weld);
+    state.secondaryWeld = avail[0] || "fillet";
+    state.secondaryParams = initParams(state.secondaryWeld);
+    state.secondaryTouched = {};
+  } else {
+    state.secondaryWeld = null;
+    state.secondaryParams = {};
+    state.secondaryTouched = {};
+  }
+  render();
+}
+function selectSecondaryWeld(key) {
+  state.secondaryWeld = key;
+  state.secondaryParams = initParams(key);
+  state.secondaryTouched = {};
+  render();
+}
+function setSecondaryParam(key, val) {
+  const def = PARAM_DEFS[key];
+  if (def && def.type === "select") {
+    state.secondaryParams[key] = val;
+    state.secondaryTouched[key] = true;
+    renderVisual();
+    return;
+  }
+  const num = parseFloat(val);
+  if (!isNaN(num)) {
+    state.secondaryParams[key] = num;
+    state.secondaryTouched[key] = true;
+    renderVisual();
   }
 }
-initParams(state.weld);
+function finalizeSecondaryParam(key, inputEl) {
+  const def = PARAM_DEFS[key];
+  if (def && def.type === "select") return;
+  let num = parseFloat(inputEl.value);
+  if (isNaN(num)) num = def.default;
+  num = clamp(num, def.min, def.max);
+  state.secondaryParams[key] = num;
+  inputEl.value = num;
+  renderVisual();
+}
+
 
 function setMode(mode) {
   state.mode = mode;
@@ -112,25 +159,38 @@ function setChainStagger(val) { state.chainStagger = val; renderVisual(); }
 function stepNext() { if (state.step < STEP_COUNT - 1) { state.step++; render(); } }
 function stepBack() { if (state.step > 0) { state.step--; render(); } }
 
+function applyParams(weldKey) {
+  state.params = initParams(weldKey);
+  state.touchedParams = {};
+  if (state.selectedVariable && !WELD_TYPES[weldKey].params.includes(state.selectedVariable)) {
+    state.selectedVariable = null;
+  }
+}
+applyParams(state.weld);
+
 function selectJoint(key) {
   state.joint = key;
   const avail = getAvailableWelds(key, state.showAdvanced);
   if (!avail.includes(state.weld)) {
     state.weld = avail[0];
-    initParams(state.weld);
+    applyParams(state.weld);
+  }
+  if (state.secondaryWeld) {
+    const availSecondary = getAvailableWelds(key, state.showAdvanced);
+    if (!availSecondary.includes(state.secondaryWeld)) toggleCompound(false);
   }
   render();
 }
 function selectWeld(key) {
   state.weld = key;
-  initParams(key);
+  applyParams(key);
   render();
 }
 function selectSide(side) { state.side = side; render(); }
 function toggleAdvanced(checked) {
   state.showAdvanced = checked;
   const avail = getAvailableWelds(state.joint, state.showAdvanced);
-  if (!avail.includes(state.weld)) { state.weld = avail[0]; initParams(state.weld); }
+  if (!avail.includes(state.weld)) { state.weld = avail[0]; applyParams(state.weld); }
   render();
 }
 function setTail(val) { state.tailText = val; renderVisual(); }
@@ -230,6 +290,35 @@ function buildWeldStep(container) {
   container.appendChild(label);
   document.getElementById("adv-check").onchange = (e) => toggleAdvanced(e.target.checked);
 
+  const compoundLabel = document.createElement("label");
+  compoundLabel.className = "advanced-toggle";
+  compoundLabel.innerHTML = `<input type="checkbox" id="compound-check" ${state.secondaryWeld ? "checked" : ""}> Add a second symbol (compound weld, e.g. bevel + fillet)`;
+  container.appendChild(compoundLabel);
+  document.getElementById("compound-check").onchange = (e) => toggleCompound(e.target.checked);
+
+  if (state.secondaryWeld) {
+    const fs2 = document.createElement("fieldset");
+    fs2.innerHTML = `<legend>Second symbol</legend>`;
+    const grid2 = document.createElement("div");
+    grid2.className = "choice-grid";
+    avail.filter(k => k !== state.weld).forEach(key => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "choice-btn" + (state.secondaryWeld === key ? " selected" : "");
+      b.textContent = WELD_TYPES[key].label + (isAdvancedCombo(state.joint, key) ? " ★" : "");
+      b.onclick = () => selectSecondaryWeld(key);
+      grid2.appendChild(b);
+    });
+    fs2.appendChild(grid2);
+    const hint2 = document.createElement("div");
+    hint2.className = "field-hint";
+    hint2.textContent = "Drawn immediately next to the primary symbol, on the same side of the reference line, with its own dimensions.";
+    fs2.appendChild(hint2);
+    container.appendChild(fs2);
+    setFeedback("Compound symbol: " + WELD_TYPES[state.weld].label + " + " + WELD_TYPES[state.secondaryWeld].label);
+    return;
+  }
+
   setFeedback(WELD_TYPES[state.weld].note);
 }
 
@@ -323,15 +412,15 @@ function buildSideStep(container) {
   setFeedback("Below the reference line = weld goes on the arrow side of the joint. Above the line = the other side. Symbols on both sides = a double weld.");
 }
 
-function buildParamsStep(container) {
+function buildDimensionsFieldset(weldKey, params, touched, selectedVar, setFn, finalizeFn, legend) {
   const fs = document.createElement("fieldset");
-  fs.innerHTML = `<legend>Dimensions</legend>`;
-  WELD_TYPES[state.weld].params.forEach(key => {
+  fs.innerHTML = `<legend>${legend}</legend>`;
+  WELD_TYPES[weldKey].params.forEach(key => {
     const def = PARAM_DEFS[key];
     if (!def) return; // version-mismatch guard, matches initParams
-    const val = state.params[key];
+    const val = params[key];
     const group = document.createElement("div");
-    group.className = "field-group" + (state.selectedVariable === key ? " var-highlight" : "");
+    group.className = "field-group" + (selectedVar === key ? " var-highlight" : "");
 
     if (def.type === "select") {
       const optionsHtml = def.options.map(o =>
@@ -342,10 +431,7 @@ function buildParamsStep(container) {
         <select id="p-${key}">${optionsHtml}</select>
         <div class="field-hint">${def.hint}</div>`;
       fs.appendChild(group);
-      // Attach immediately — the element is already in the live DOM at this
-      // point (appendChild is synchronous), so no setTimeout is needed, and
-      // none of the deferred-callback races that come with it.
-      group.querySelector("select").onchange = (e) => setParam(key, e.target.value);
+      group.querySelector("select").onchange = (e) => setFn(key, e.target.value);
     } else {
       group.innerHTML = `
         <label for="p-${key}">${def.label}</label>
@@ -356,11 +442,24 @@ function buildParamsStep(container) {
         <div class="field-hint">${def.hint} Range: ${fmt(def.min)}\u2013${fmt(def.max)} ${def.unit}.</div>`;
       fs.appendChild(group);
       const inputEl = group.querySelector("input");
-      inputEl.oninput = (e) => setParam(key, e.target.value);
-      inputEl.onblur = (e) => finalizeParam(key, e.target);
+      inputEl.oninput = (e) => setFn(key, e.target.value);
+      inputEl.onblur = (e) => finalizeFn(key, e.target);
     }
   });
-  container.appendChild(fs);
+  return fs;
+}
+
+function buildParamsStep(container) {
+  container.appendChild(buildDimensionsFieldset(
+    state.weld, state.params, state.touchedParams, state.selectedVariable,
+    setParam, finalizeParam, state.secondaryWeld ? "Dimensions \u2014 primary symbol" : "Dimensions"
+  ));
+  if (state.secondaryWeld) {
+    container.appendChild(buildDimensionsFieldset(
+      state.secondaryWeld, state.secondaryParams, state.secondaryTouched, null,
+      setSecondaryParam, finalizeSecondaryParam, "Dimensions \u2014 second symbol"
+    ));
+  }
   setFeedback(state.weld === "square"
     ? "Square grooves have no angle or root face — just a root opening. Best suited to thin material."
     : "A Weld Depth of 0 indicates complete joint penetration (CJP) — the default assumption unless a partial depth is specified.");
