@@ -195,12 +195,14 @@ function segmentHitsPlate(x1, y1, x2, y2, rects, pad) {
 }
 
 // Builds an arrow path from the reference line to the joint's root that
-// never cuts across a plate. Tries the direct line first; if that's
-// blocked, tries approaching from BELOW the joint first (via a side corner
-// if a direct below approach is blocked) since that reads most clearly as
-// "never crossing the material" — only falls back to above/side routes when
-// no below approach is geometrically possible (e.g. a T-joint or corner
-// joint target where the base plate itself sits below, blocking that path).
+// never cuts across a plate, and whose FINAL approach into the target is
+// always a clean 45-degree diagonal — never an axis-aligned "L" hook (a
+// horizontal run followed by a sharp vertical turn right at the joint),
+// which reads as awkward and unclear regardless of whether it technically
+// avoids the material. Tries approaching from below the joint first (reads
+// most clearly as never crossing it), then above, at a range of diagonal
+// distances, only falling back to a non-45-degree route in the rare case
+// nothing else is possible.
 function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   const allRects = getJointPlates(jointKey);
   if (!allRects.length) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
@@ -236,28 +238,32 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   const maxY = Math.max(...allRects.map(r => r.y + r.h));
   const OUT = 22;
 
-  // 1. Prefer approaching from below, trying the direct-below line first,
-  // then via whichever side corner is closer to the start point.
-  const belowCandidates = [
-    [{ x: ax1, y: ay1 }, { x: seamX, y: maxY + OUT }, { x: seamX, y: seamY }],
-    [{ x: ax1, y: ay1 }, { x: maxX + OUT, y: maxY + OUT }, { x: seamX, y: maxY + OUT }, { x: seamX, y: seamY }],
-    [{ x: ax1, y: ay1 }, { x: minX - OUT, y: maxY + OUT }, { x: seamX, y: maxY + OUT }, { x: seamX, y: seamY }]
+  // Below-right, below-left, above-right, above-left — below tried first.
+  // For each direction, try a shrinking sequence of 45-degree distances
+  // (a longer, more visible diagonal is preferred when there's room for it).
+  const directions = [
+    { dx: 1, dy: 1 }, { dx: -1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: -1 }
   ];
-  for (const cand of belowCandidates) {
-    if (pathClear(cand)) return cand;
+  const distances = [50, 40, 32, 24, 18];
+
+  for (const dir of directions) {
+    for (const D of distances) {
+      const fx = seamX + dir.dx * D, fy = seamY + dir.dy * D;
+      // Try reaching the 45-degree point directly from the reference line first.
+      const direct = [{ x: ax1, y: ay1 }, { x: fx, y: fy }, { x: seamX, y: seamY }];
+      if (pathClear(direct)) return direct;
+      // Otherwise route via the bounding-box corner on the matching side first.
+      const cornerX = dir.dx > 0 ? maxX + OUT : minX - OUT;
+      const cornerY = dir.dy > 0 ? maxY + OUT : minY - OUT;
+      const viaCorner = [{ x: ax1, y: ay1 }, { x: cornerX, y: cornerY }, { x: fx, y: fy }, { x: seamX, y: seamY }];
+      if (pathClear(viaCorner)) return viaCorner;
+    }
   }
 
-  // 2. Direct line, if a below approach genuinely isn't possible.
-  if (clear(ax1, ay1, seamX, seamY)) return [{ x: ax1, y: ay1 }, { x: seamX, y: seamY }];
-
-  // 3. Above/side one-elbow routes, picking whichever has the shortest
-  // final approach segment (keeps it from hugging a plate edge for long).
+  // Last resort (very rare): an axis-aligned elbow, whatever is clear.
   const waypoints = [
-    { x: seamX, y: minY - OUT },
-    { x: minX - OUT, y: seamY },
-    { x: maxX + OUT, y: seamY },
-    { x: minX - OUT, y: minY - OUT },
-    { x: maxX + OUT, y: minY - OUT }
+    { x: seamX, y: minY - OUT }, { x: seamX, y: maxY + OUT },
+    { x: minX - OUT, y: seamY }, { x: maxX + OUT, y: seamY }
   ];
   let best = null, bestFinalLen = Infinity;
   waypoints.forEach(wp => {
@@ -268,7 +274,6 @@ function computeArrowPath(ax1, ay1, seamX, seamY, jointKey) {
   });
   if (best) return best;
 
-  // Last resort (rare): two elbows via the bounding box corner nearest the target.
   const cornerX = seamX <= (minX + maxX) / 2 ? minX - OUT : maxX + OUT;
   const cornerY = seamY <= (minY + maxY) / 2 ? minY - OUT : maxY + OUT;
   return [{ x: ax1, y: ay1 }, { x: cornerX, y: cornerY }, { x: seamX, y: cornerY }, { x: seamX, y: seamY }];
