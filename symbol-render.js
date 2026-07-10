@@ -278,9 +278,12 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
       points: `${cx - halfW},${lineY + dir * DEPTH} ${cx},${lineY} ${cx + halfW},${lineY + dir * DEPTH}`,
       fill: "none", stroke: C, "stroke-width": 2.5
     }));
-    addLabel("rootOpening", cx, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", cx, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
-    addContourFinishIfShown(cx, dir, C, lineY + dir * 68, lineY + dir * 92);
+    // Labels sit BELOW the shape's full open width (past DEPTH), not near
+    // the narrow vertex — near the vertex the V is too thin and any text
+    // ends up crossing the diagonal lines no matter how tightly it's packed.
+    addLabel("rootOpening", cx, lineY + dir * (DEPTH + 16), fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", cx, lineY + dir * (DEPTH + 34), `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
+    addContourFinishIfShown(cx, dir, C, lineY + dir * (DEPTH + 52), lineY + dir * (DEPTH + 70));
     addSizeDepthPair(leftX);
     return g;
   }
@@ -292,9 +295,9 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
       points: `${cx},${lineY + dir * DEPTH} ${cx},${lineY} ${cx + spread},${lineY + dir * DEPTH}`,
       fill: "none", stroke: C, "stroke-width": 2.5
     }));
-    addLabel("rootOpening", midX, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", midX, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
-    addContourFinishIfShown(midX, dir, C, lineY + dir * 68, lineY + dir * 92);
+    addLabel("rootOpening", midX, lineY + dir * (DEPTH + 16), fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", midX, lineY + dir * (DEPTH + 34), `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 13 });
+    addContourFinishIfShown(midX, dir, C, lineY + dir * (DEPTH + 52), lineY + dir * (DEPTH + 70));
     addSizeDepthPair(leftX);
     return g;
   }
@@ -306,11 +309,11 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
     g.appendChild(el("line", { x1: cx, y1: lineY, x2: cx, y2: peakY, stroke: C, "stroke-width": 2.5 }));
     const path = `M ${cx - halfW},${openY} Q ${cx - halfW},${peakY} ${cx},${peakY} Q ${cx + halfW},${peakY} ${cx + halfW},${openY}`;
     g.appendChild(el("path", { d: path, fill: "none", stroke: C, "stroke-width": 2.5 }));
-    addLabel("rootOpening", cx, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", cx, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
-    addContourFinishIfShown(cx, dir, C, lineY + dir * 68, lineY + dir * 92);
+    addLabel("rootOpening", cx, lineY + dir * (DEPTH + 16), fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", cx, lineY + dir * (DEPTH + 34), `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
+    addContourFinishIfShown(cx, dir, C, lineY + dir * (DEPTH + 52), lineY + dir * (DEPTH + 70));
     addSizeDepthPair(leftX);
-    addLabel("grooveRadius", cx, lineY + dir * (DEPTH + 24), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
+    addLabel("grooveRadius", cx, lineY + dir * (DEPTH + 88), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
     return g;
   }
 
@@ -322,11 +325,11 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
     g.appendChild(el("line", { x1: cx, y1: lineY, x2: cx, y2: openY, stroke: C, "stroke-width": 2.5 }));
     const jPath = `M ${cx},${curveStartY} Q ${cx + spread},${curveStartY} ${cx + spread},${openY}`;
     g.appendChild(el("path", { d: jPath, fill: "none", stroke: C, "stroke-width": 2.5 }));
-    addLabel("rootOpening", midX, lineY + dir * 20, fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
-    addLabel("grooveAngle", midX, lineY + dir * 44, `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
-    addContourFinishIfShown(midX, dir, C, lineY + dir * 68, lineY + dir * 92);
+    addLabel("rootOpening", midX, lineY + dir * (DEPTH + 16), fmt(params.rootOpening), { anchor: "middle", fill: C, size: 12 });
+    addLabel("grooveAngle", midX, lineY + dir * (DEPTH + 34), `${params.grooveAngle}\u00b0`, { anchor: "middle", fill: C, size: 12 });
+    addContourFinishIfShown(midX, dir, C, lineY + dir * (DEPTH + 52), lineY + dir * (DEPTH + 70));
     addSizeDepthPair(leftX);
-    addLabel("grooveRadius", midX, lineY + dir * (DEPTH + 24), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
+    addLabel("grooveRadius", midX, lineY + dir * (DEPTH + 88), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 11 });
     return g;
   }
 
@@ -338,7 +341,8 @@ function buildGlyph(weldKey, cx, dir, params, repeatInfo) {
     g.appendChild(el("line", { x1: cx + 13, y1: lineY, x2: cx + 13, y2: stemPeakY, stroke: C, "stroke-width": 2.5 }));
     const path = `M ${cx + 13},${stemPeakY} Q ${cx + 13},${openY} ${cx + 40},${openY}`;
     g.appendChild(el("path", { d: path, fill: "none", stroke: C, "stroke-width": 2.5 }));
-    addContourFinishIfShown(midX, dir, C, lineY + dir * 20, lineY + dir * 44);
+    // Contour/finish sit below the hook's full extent, not near its narrow start.
+    addContourFinishIfShown(midX, dir, C, lineY + dir * (DEPTH + 16), lineY + dir * (DEPTH + 34));
     addSizeDepthPair(leftX);
     addLabel("grooveRadius", cx, lineY + dir * (DEPTH + 20), fmt(params.grooveRadius), { anchor: "middle", fill: C, size: 12 });
     return g;
