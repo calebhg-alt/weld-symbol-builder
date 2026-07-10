@@ -323,6 +323,17 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 // ---------- Interactive parameter labels ----------
 // Each label/shape is focusable and clickable: selecting it (mouse or
 // keyboard) jumps to and highlights the matching field in the Dimensions panel.
+
+// Muted until the person actually sets a value; bright, higher-contrast once
+// they have — mirrors the AWS chart's convention of showing a bare letter
+// (S, A, R, L, P, E...) as a placeholder for where a value goes.
+const UNSET_COLOR = "#7E93B8";
+const SET_COLOR = "#FFFFFF";
+const PARAM_LETTER = {
+  size: "S", length: "L", pitch: "P", rootOpening: "R", grooveAngle: "A",
+  grooveSize: "S", weldDepth: "E", grooveRadius: "Rad"
+};
+
 function interactiveGroup(key, ariaLabel, children) {
   const def = PARAM_DEFS[key];
   const isSelected = state.selectedVariable === key;
@@ -345,7 +356,15 @@ function interactiveGroup(key, ariaLabel, children) {
 function paramLabel(key, x, y, str, opts) {
   opts = opts || {};
   const def = PARAM_DEFS[key];
-  return interactiveGroup(key, (def ? def.label : key) + ": " + str, [textEl(x, y, str, opts)]);
+  let displayStr = str;
+  let color = opts.fill || SET_COLOR;
+  if (PARAM_LETTER[key]) {
+    const touched = !!(state.touchedParams && state.touchedParams[key]);
+    displayStr = touched ? str : PARAM_LETTER[key];
+    color = touched ? SET_COLOR : UNSET_COLOR;
+  }
+  const mergedOpts = Object.assign({}, opts, { fill: color });
+  return interactiveGroup(key, (def ? def.label : key) + ": " + str, [textEl(x, y, displayStr, mergedOpts)]);
 }
 
 // Contour symbol: a small cap shape sitting directly beyond the weld glyph —
@@ -367,26 +386,28 @@ function contourShapeElements(cx, y, value, color, dir) {
 
 // Shared contour + finish rendering, appended just beyond the groove-angle /
 // root-opening stack — the outermost elements per the AWS layout (F above
-// the contour symbol, which sits directly atop the weld symbol).
+// the contour symbol, which sits directly atop the weld symbol). Contour and
+// finish use their own value ("none" vs. an actual selection) as the signal
+// for muted-placeholder vs. bright-set, since unlike the numeric fields
+// their default IS the "unset" state.
 function addContourFinish(g, cx, dir, params, color, contourY, finishY) {
-  if (params.contourSymbol !== undefined && params.contourSymbol !== "none") {
+  const contourSet = params.contourSymbol && params.contourSymbol !== "none";
+  const finishSet = params.finishSymbol && params.finishSymbol !== "none";
+
+  if (contourSet) {
     g.appendChild(interactiveGroup(
       "contourSymbol",
       "Contour Symbol: " + params.contourSymbol,
-      contourShapeElements(cx, contourY, params.contourSymbol, color, dir)
+      contourShapeElements(cx, contourY, params.contourSymbol, SET_COLOR, dir)
     ));
-  } else if (params.contourSymbol !== undefined) {
-    // Still focusable/clickable even at "none" so it can be discovered and set.
-    g.appendChild(interactiveGroup("contourSymbol", "Contour Symbol: none", [
-      el("circle", { cx: cx, cy: contourY, r: 2, fill: color, opacity: 0.35 })
-    ]));
+  } else {
+    g.appendChild(paramLabel("contourSymbol", cx, contourY, "C", { anchor: "middle", size: 12, fill: UNSET_COLOR }));
   }
-  if (params.finishSymbol !== undefined && params.finishSymbol !== "none") {
-    g.appendChild(paramLabel("finishSymbol", cx, finishY, params.finishSymbol, { anchor: "middle", fill: color, size: 13 }));
-  } else if (params.finishSymbol !== undefined) {
-    g.appendChild(interactiveGroup("finishSymbol", "Finish Symbol: none", [
-      el("circle", { cx: cx, cy: finishY, r: 2, fill: color, opacity: 0.35 })
-    ]));
+
+  if (finishSet) {
+    g.appendChild(paramLabel("finishSymbol", cx, finishY, params.finishSymbol, { anchor: "middle", size: 13, fill: SET_COLOR }));
+  } else {
+    g.appendChild(paramLabel("finishSymbol", cx, finishY, "F", { anchor: "middle", size: 13, fill: UNSET_COLOR }));
   }
 }
 
@@ -394,17 +415,22 @@ function addContourFinish(g, cx, dir, params, color, contourY, finishY) {
 function renderSymbol(svg, appState) {
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-  // The sheet grows to fit a long tail note instead of clipping it.
-  const tailW = appState.tailText ? estimateTextWidth(appState.tailText, 14) : 0;
-  const requiredWidth = LINE_X2 + 54 + tailW + 40;
-  const totalWidth = Math.max(BASE_WIDTH, requiredWidth);
-  svg.setAttribute("viewBox", `0 0 ${totalWidth} ${SHEET_HEIGHT}`);
-
-  svg.appendChild(buildGrid(totalWidth));
+  // Fixed sheet size always — only the reference line's length changes to
+  // make room for a long tail note. The weld symbol itself never resizes.
+  svg.setAttribute("viewBox", `0 0 ${BASE_WIDTH} ${SHEET_HEIGHT}`);
+  svg.appendChild(buildGrid(BASE_WIDTH));
   svg.appendChild(buildJointIllustration(appState.joint));
 
+  const MIN_LINE_X2 = 580; // floor so the line never retracts into the glyph area
+  const tailW = appState.tailText ? estimateTextWidth(appState.tailText, 14) : 0;
+  let lineX2 = LINE_X2;
+  if (appState.tailText) {
+    const desired = BASE_WIDTH - 30 - 54 - tailW;
+    lineX2 = Math.max(MIN_LINE_X2, Math.min(LINE_X2, desired));
+  }
+
   const seamPt = getEffectiveSeam(appState.joint);
-  svg.appendChild(buildReferenceLine(!!appState.tailText, appState.tailText, appState.weld, LINE_X2, seamPt));
+  svg.appendChild(buildReferenceLine(!!appState.tailText, appState.tailText, appState.weld, lineX2, seamPt));
 
   const glyphCx = LINE_X1 + 70;
   // Chain vs. staggered only applies to a double-sided intermittent fillet —
