@@ -150,13 +150,20 @@ function jointSeamPoint(jointKey) {
 function jointFacePoints(jointKey) {
   const cx = 130, cy = 250;
   switch (jointKey) {
-    case "butt": return [{ x: cx, y: cy }, { x: cx, y: cy }]; // shared gap; both plates meet at the same root
-    case "tjoint": return [{ x: cx - 12, y: cy + 10 }, { x: cx + 12, y: cy + 10 }]; // upright's near vs. far face
-    case "lap": return [{ x: cx + 10, y: cy + 16 }, { x: cx - 10, y: cy + 16 }]; // top plate's edge vs. bottom plate's edge
-    case "corner": return [{ x: cx + 20, y: cy - 10 }, { x: cx - 2, y: cy - 10 }]; // base's outer edge vs. upright's near face
-    case "edge": return [{ x: cx + 60, y: cy - 12 }, { x: cx + 60, y: cy - 6 }]; // top plate side vs. bottom plate side
-    default: return [{ x: cx, y: cy }, { x: cx, y: cy }];
+    case "butt": return [{ x: cx - 8, y: cy, label: "Left plate" }, { x: cx + 8, y: cy, label: "Right plate" }];
+    case "tjoint": return [{ x: cx - 12, y: cy + 10, label: "Upright (near)" }, { x: cx + 12, y: cy + 10, label: "Upright (far)" }];
+    case "lap": return [{ x: cx + 10, y: cy + 16, label: "Top plate" }, { x: cx - 10, y: cy + 16, label: "Bottom plate" }];
+    case "corner": return [{ x: cx + 20, y: cy - 10, label: "Base plate" }, { x: cx - 2, y: cy - 10, label: "Upright" }];
+    case "edge": return [{ x: cx + 60, y: cy - 12, label: "Top plate" }, { x: cx + 60, y: cy - 6, label: "Bottom plate" }];
+    default: return [{ x: cx, y: cy, label: "Root" }, { x: cx, y: cy, label: "Root" }];
   }
+}
+
+// Snap points shown (and clickable) during calibration — the same two face
+// points, just exposed as a named list so clicking near one snaps to its
+// exact coordinates instead of an imprecise raw pixel.
+function getSnapPoints(jointKey) {
+  return jointFacePoints(jointKey);
 }
 
 // A person-calibrated arrow target always wins over the built-in default —
@@ -278,10 +285,26 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey
     g.appendChild(el("line", { x1: ax1, y1: ay1 - 8, x2: ax1, y2: ay1 - 20, stroke: "#E8EEF5", "stroke-width": 1.5 }));
   }
 
+  // For bevel/J-groove/flare-bevel, pull the actual endpoint back from the
+  // corner by a small fixed distance along the approach direction. The
+  // arrow still clearly points AT the corner (the trajectory aims straight
+  // at it) but the drawn tip stops just short — so it never touches the
+  // plate at all, which sidesteps overlap concerns entirely rather than
+  // needing to route flush against the boundary.
+  const needsBreak = (weldKey === "bevel" || weldKey === "j" || weldKey === "flarebevel");
+  let ex2 = ax2, ey2 = ay2;
+  if (needsBreak) {
+    const ddx = ax2 - ax1, ddy = ay2 - ay1;
+    const dlen = Math.hypot(ddx, ddy) || 1;
+    const pullback = 14;
+    ex2 = ax2 - (ddx / dlen) * pullback;
+    ey2 = ay2 - (ddy / dlen) * pullback;
+  }
+
   // Route the arrow around any plate it would otherwise cut across. Runs
   // fresh on every render, so a calibrated (dragged) arrow position or a
   // joint switch both re-route automatically — nothing to fix by hand.
-  const path = computeArrowPath(ax1, ay1, ax2, ay2, jointKey);
+  const path = computeArrowPath(ax1, ay1, ex2, ey2, jointKey);
 
   // Broken/bent leader line: required whenever only ONE member of the joint
   // is prepared (bevel, J-groove, flare-bevel) — the bend points the arrow
@@ -289,7 +312,6 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey
   // Applied to the FINAL segment of the routed path (closest to the
   // arrowhead), so it still reads correctly even when the path also had to
   // detour around a plate.
-  const needsBreak = (weldKey === "bevel" || weldKey === "j" || weldKey === "flarebevel");
   let finalSegStart = path[path.length - 2];
   const finalSegEnd = path[path.length - 1];
   let points = path.map(p => `${p.x},${p.y}`);
@@ -312,9 +334,9 @@ function buildReferenceLine(hasTail, tailText, weldKey, lineX2, seamPt, jointKey
   // arrowhead — angled to match the actual final approach direction, not
   // the start-to-end direction, so it's still correct after routing/bending.
   const angle = Math.atan2(finalSegEnd.y - finalSegStart.y, finalSegEnd.x - finalSegStart.x);
-  const ah1x = ax2 - 14 * Math.cos(angle - 0.35), ah1y = ay2 - 14 * Math.sin(angle - 0.35);
-  const ah2x = ax2 - 14 * Math.cos(angle + 0.35), ah2y = ay2 - 14 * Math.sin(angle + 0.35);
-  g.appendChild(el("polygon", { points: `${ax2},${ay2} ${ah1x},${ah1y} ${ah2x},${ah2y}`, fill: "#E8EEF5" }));
+  const ah1x = ex2 - 14 * Math.cos(angle - 0.35), ah1y = ey2 - 14 * Math.sin(angle - 0.35);
+  const ah2x = ex2 - 14 * Math.cos(angle + 0.35), ah2y = ey2 - 14 * Math.sin(angle + 0.35);
+  g.appendChild(el("polygon", { points: `${ex2},${ey2} ${ah1x},${ah1y} ${ah2x},${ah2y}`, fill: "#E8EEF5" }));
 
   // Calibration crosshair — only shown while the person is actively placing the arrow.
   if (state.calibrating) {
@@ -600,6 +622,17 @@ function renderSymbol(svg, appState) {
   svg.setAttribute("viewBox", `0 0 ${BASE_WIDTH} ${SHEET_HEIGHT}`);
   svg.appendChild(buildGrid(BASE_WIDTH));
   svg.appendChild(buildJointIllustration(appState.joint));
+
+  // Snap-point markers — only shown while actively calibrating, so they
+  // don't clutter the diagram the rest of the time.
+  if (appState.calibrating) {
+    getSnapPoints(appState.joint).forEach(pt => {
+      const dot = el("g", {});
+      dot.appendChild(el("circle", { cx: pt.x, cy: pt.y, r: 7, fill: "rgba(242,199,68,0.15)", stroke: "#F2C744", "stroke-width": 1.5 }));
+      dot.appendChild(el("circle", { cx: pt.x, cy: pt.y, r: 2, fill: "#F2C744" }));
+      svg.appendChild(dot);
+    });
+  }
 
   const MIN_LINE_X2 = 580; // floor so the line never retracts into the glyph area
   const tailW = appState.tailText ? estimateTextWidth(appState.tailText, 14) : 0;
