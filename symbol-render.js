@@ -808,9 +808,21 @@ function renderSymbol(svg, appState) {
   // don't clutter the diagram the rest of the time.
   if (appState.calibrating) {
     getSnapPoints(appState.joint).forEach(pt => {
-      const dot = el("g", {});
-      dot.appendChild(el("circle", { cx: pt.x, cy: pt.y, r: 7, fill: "rgba(242,199,68,0.15)", stroke: "#F2C744", "stroke-width": 1.5 }));
+      const dot = el("g", {
+        tabindex: "0",
+        role: "button",
+        "aria-label": "Set arrow to " + pt.label,
+        class: "snap-point",
+        "data-snap-x": Math.round(pt.x),
+        "data-snap-y": Math.round(pt.y)
+      });
+      dot.appendChild(el("title", {}, [document.createTextNode("Set arrow to " + pt.label)]));
+      dot.appendChild(el("circle", { cx: pt.x, cy: pt.y, r: 7, fill: "rgba(242,199,68,0.15)", stroke: "#F2C744", "stroke-width": 1.5, class: "snap-ring" }));
       dot.appendChild(el("circle", { cx: pt.x, cy: pt.y, r: 2, fill: "#F2C744" }));
+      dot.onclick = function () { setArrowOverride(pt.x, pt.y); };
+      dot.onkeydown = function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setArrowOverride(pt.x, pt.y); }
+      };
       svg.appendChild(dot);
     });
   }
