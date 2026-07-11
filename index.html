@@ -685,6 +685,15 @@
     text-align:center;
     line-height:1.5;
   }
+  .attribution{
+    display:inline-block;
+    margin-top:6px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    letter-spacing:0.03em;
+    color:var(--steel);
+    opacity:0.85;
+  }
 </style>
 </head>
 <body>
@@ -779,6 +788,8 @@
         <br>
         Built to <strong>WCAG 2.1 Level AA</strong> success criteria.
         <button type="button" class="wcag-report-link" onclick="state.showWcagReport = true; render();">View accessibility compliance report</button>
+        <br>
+        <span class="attribution">Built by Caleb Healey — AVC CTE Welding</span>
       </div>
     </div>
   </div>
