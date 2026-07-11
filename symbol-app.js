@@ -715,8 +715,8 @@ function buildQuizPanel(container) {
       <div class="quiz-start">
         <h3>Practice Quiz</h3>
         <p>Random weld symbols are drawn on the sheet \u2014 identify the joint and weld type, or read a dimension straight off the symbol.</p>
-        <div class="quiz-count-select" id="quiz-count-select">
-          ${[5, 10, 25].map(n => `<button type="button" data-n="${n}" class="${n === 10 ? "active" : ""}">${n} questions</button>`).join("")}
+        <div class="quiz-count-select" id="quiz-count-select" role="group" aria-label="Number of questions">
+          ${[5, 10, 25].map(n => `<button type="button" data-n="${n}" aria-pressed="${n === 10}" class="${n === 10 ? "active" : ""}">${n} questions</button>`).join("")}
         </div>
         <button type="button" class="btn-start-quiz" id="btn-start-quiz">Start Quiz</button>
       </div>`;
@@ -724,8 +724,9 @@ function buildQuizPanel(container) {
     let selectedCount = 10;
     panel.querySelectorAll("#quiz-count-select button").forEach(b => {
       b.onclick = () => {
-        panel.querySelectorAll("#quiz-count-select button").forEach(x => x.classList.remove("active"));
+        panel.querySelectorAll("#quiz-count-select button").forEach(x => { x.classList.remove("active"); x.setAttribute("aria-pressed", "false"); });
         b.classList.add("active");
+        b.setAttribute("aria-pressed", "true");
         selectedCount = parseInt(b.dataset.n, 10);
       };
     });
@@ -737,7 +738,7 @@ function buildQuizPanel(container) {
   if (q.finished) {
     const pct = Math.round((q.score / q.total) * 100);
     panel.innerHTML = `
-      <div class="quiz-results">
+      <div class="quiz-results" role="status">
         <div>Quiz complete</div>
         <div class="big-score">${q.score} / ${q.total}</div>
         <p>${pct}% correct</p>
@@ -752,28 +753,45 @@ function buildQuizPanel(container) {
     return;
   }
 
+  // aria-live="polite": screen reader users hear the updated question count
+  // and score automatically as the quiz progresses, without needing to
+  // re-navigate to this element after every answer.
   const progress = document.createElement("div");
   progress.className = "quiz-progress";
+  progress.setAttribute("aria-live", "polite");
   progress.innerHTML = `<span>Question ${q.index + 1} of ${q.total}</span><span class="score">Score: ${q.score}</span>`;
   panel.appendChild(progress);
 
   const question = document.createElement("div");
   question.className = "quiz-question";
+  question.id = "quiz-question-text";
   question.textContent = q.question.prompt;
   panel.appendChild(question);
 
   const choices = document.createElement("div");
   choices.className = "quiz-choices";
+  choices.setAttribute("role", "group");
+  choices.setAttribute("aria-labelledby", "quiz-question-text");
   q.question.choices.forEach(choice => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "quiz-choice";
-    b.textContent = choice;
     if (q.answered) {
       b.disabled = true;
-      if (choice === q.question.correctAnswer) b.classList.add("correct");
-      else if (choice === q.selected) b.classList.add("incorrect");
+      // Correct/incorrect are marked with text (✓/✗), not color alone —
+      // color-blind users and screen reader users get the same information
+      // everyone else does, not just a color change.
+      if (choice === q.question.correctAnswer) {
+        b.classList.add("correct");
+        b.textContent = "\u2713 " + choice;
+      } else if (choice === q.selected) {
+        b.classList.add("incorrect");
+        b.textContent = "\u2717 " + choice;
+      } else {
+        b.textContent = choice;
+      }
     } else {
+      b.textContent = choice;
       b.onclick = () => answerQuiz(choice);
     }
     choices.appendChild(b);
@@ -784,6 +802,8 @@ function buildQuizPanel(container) {
     const correct = q.selected === q.question.correctAnswer;
     const feedback = document.createElement("div");
     feedback.className = "quiz-feedback " + (correct ? "correct" : "incorrect");
+    feedback.setAttribute("role", "status");
+    feedback.setAttribute("aria-live", "assertive");
     feedback.textContent = correct
       ? "Correct!"
       : "Not quite \u2014 the correct answer is " + q.question.correctAnswer + ".";
@@ -795,6 +815,10 @@ function buildQuizPanel(container) {
     nextBtn.textContent = q.index + 1 >= q.total ? "See results" : "Next question";
     nextBtn.onclick = () => nextQuizQuestion();
     panel.appendChild(nextBtn);
+    // Move focus to the next-question button so keyboard/screen-reader users
+    // land somewhere useful after answering, instead of focus vanishing
+    // into the now-disabled choice button.
+    setTimeout(() => nextBtn.focus(), 0);
   }
 
   container.appendChild(panel);
