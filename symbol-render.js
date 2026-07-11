@@ -111,7 +111,7 @@ function getJointPlates(jointKey) {
 }
 
 function buildJointIllustration(jointKey) {
-  const g = el("g", {});
+  const g = el("g", { "aria-hidden": "true" });
   const plateFill = "#8FA3C2";
   const plateStroke = "#E8EEF5";
 
@@ -671,7 +671,8 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 // Muted until the person actually sets a value; bright, higher-contrast once
 // they have — mirrors the AWS chart's convention of showing a bare letter
 // (S, A, R, L, P, E...) as a placeholder for where a value goes.
-const UNSET_COLOR = "#7E93B8";
+const UNSET_COLOR = "#8499BE"; // WCAG AA: 4.57:1 against the blueprint background (#12324F) — the
+                                // original #7E93B8 only reached 4.23:1, just under the 4.5:1 minimum.
 const SET_COLOR = "#FFFFFF";
 const PARAM_LETTER = {
   size: "S", length: "L", pitch: "P", rootOpening: "R", grooveAngle: "A",
@@ -764,6 +765,31 @@ const LINE_STEP_X = 70;  // horizontal shift per additional reference line (keep
 
 function renderSymbol(svg, appState) {
   while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  // The accessible name/description (role="img" + aria-labelledby on the
+  // <svg> in index.html points to these ids) gets cleared along with
+  // everything else above — re-add it every render, or screen reader users
+  // get an unlabeled image after the very first update. In quiz mode
+  // (detected the same way the interactivity flag is: activeLine === -1)
+  // the description stays generic so it never gives away an "identify the
+  // symbol" question's answer; in the builder it describes what's shown,
+  // since that's exactly what the person is actively creating.
+  const isQuizContext = appState.activeLine === -1;
+  const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  titleEl.id = "svg-title";
+  const descEl = document.createElementNS("http://www.w3.org/2000/svg", "desc");
+  descEl.id = "svg-desc";
+  if (isQuizContext) {
+    titleEl.textContent = "Weld symbol diagram for this quiz question";
+    descEl.textContent = "A generated weld symbol with dimension values labeled directly on the diagram. Read the labels to answer the question.";
+  } else {
+    const sideLabel = { arrow: "arrow side", other: "other side", double: "both sides" }[appState.side] || appState.side;
+    titleEl.textContent = "Welding symbol diagram";
+    descEl.textContent = JOINT_TYPES[appState.joint].label + ", " + WELD_TYPES[appState.weld].label + ", " + sideLabel +
+      ((appState.additionalLines && appState.additionalLines.length) ? ", plus " + appState.additionalLines.length + " more reference line(s)" : ".");
+  }
+  svg.appendChild(titleEl);
+  svg.appendChild(descEl);
 
   const additional = appState.additionalLines || [];
   const numLines = 1 + additional.length;
