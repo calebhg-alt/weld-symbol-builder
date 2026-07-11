@@ -561,7 +561,7 @@ function buildSideStep(container) {
   document.getElementById("toggle-weld-all-around").onchange = (e) => toggleWeldAllAround(e.target.checked);
 
   if (line.weld === "fillet" && line.side === "double" &&
-      line.params.length !== undefined && line.params.pitch !== undefined) {
+      line.touchedParams.length && line.touchedParams.pitch) {
     const fsChain = document.createElement("fieldset");
     fsChain.innerHTML = `<legend>Intermittent weld pattern</legend>`;
     const chainToggle = document.createElement("div");
