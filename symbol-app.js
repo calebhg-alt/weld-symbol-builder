@@ -20,7 +20,8 @@ const state = {
   chainStagger: "chain",
   touchedParams: {},
   additionalLines: [],  // extra reference lines beyond the first (stacked, sharing one joint/arrow/tail)
-  activeLine: 0          // which line is being edited: 0 = the fields above, 1+ = additionalLines[n-1]
+  activeLine: 0,         // which line is being edited: 0 = the fields above, 1+ = additionalLines[n-1]
+  quiz: null             // active quiz session, or null when not quizzing — see startQuiz()
 };
 
 const STEP_COUNT = 4;
@@ -56,6 +57,146 @@ function selectLine(index) {
   render();
 }
 
+// ---------- Quiz mode ----------
+// Reuses the exact same data (JOINT_TYPES, WELD_TYPES, PARAM_DEFS) and the
+// exact same renderSymbol() the builder uses — a quiz question is just a
+// randomly generated, fully-valid symbol scenario rendered read-only.
+function randomChoice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randomStep(min, max, step) {
+  const steps = Math.round((max - min) / step);
+  const n = Math.floor(Math.random() * (steps + 1));
+  return Math.round((min + n * step) * 10000) / 10000; // avoid float drift
+}
+
+function generateQuizScenario() {
+  const joint = randomChoice(Object.keys(JOINT_TYPES));
+  const avail = getAvailableWelds(joint, true);
+  const weld = randomChoice(avail);
+  const params = {};
+  const touchedParams = {};
+  WELD_TYPES[weld].params.forEach(key => {
+    const def = PARAM_DEFS[key];
+    if (!def) return;
+    if (def.type === "select") {
+      const real = def.options.map(o => o.value).filter(v => v !== "none");
+      params[key] = Math.random() < 0.6 ? randomChoice(real) : "none";
+    } else {
+      params[key] = randomStep(def.min, def.max, def.step);
+    }
+    touchedParams[key] = true; // quiz symbols always show real values, never letter placeholders
+  });
+  const side = randomChoice(DOUBLE_ALLOWED[weld] ? ["arrow", "other", "double"] : ["arrow", "other"]);
+  return { joint, weld, params, touchedParams, side };
+}
+
+function quizAppState(scenario) {
+  return {
+    joint: scenario.joint, weld: scenario.weld, side: scenario.side, params: scenario.params,
+    touchedParams: scenario.touchedParams, selectedVariable: null, arrowOverrides: {}, calibrating: false,
+    fieldWeld: false, weldAllAround: false, chainStagger: "chain", tailText: "", showDimensions: true,
+    additionalLines: [], activeLine: -1 // -1: no line ever matches, so nothing renders as clickable
+  };
+}
+
+function jointWeldLabel(joint, weld) {
+  return JOINT_TYPES[joint].label + " \u2014 " + WELD_TYPES[weld].label;
+}
+
+// Builds one question: identify-the-symbol (joint + weld type) or
+// read-the-dimension (a specific labeled value), chosen at random so a quiz
+// covers both recognition and comprehension.
+function generateQuestion() {
+  const scenario = generateQuizScenario();
+  const numericKeys = WELD_TYPES[scenario.weld].params.filter(k => PARAM_DEFS[k] && PARAM_DEFS[k].type !== "select");
+  const canAskDimension = numericKeys.length > 0;
+  const type = canAskDimension && Math.random() < 0.5 ? "dimension" : "identify";
+
+  if (type === "identify") {
+    const correct = jointWeldLabel(scenario.joint, scenario.weld);
+    const distractors = new Set();
+    let guard = 0;
+    while (distractors.size < 3 && guard < 60) {
+      guard++;
+      const j = randomChoice(Object.keys(JOINT_TYPES));
+      const w = randomChoice(getAvailableWelds(j, true));
+      const label = jointWeldLabel(j, w);
+      if (label !== correct) distractors.add(label);
+    }
+    const choices = shuffle([correct].concat(Array.from(distractors)));
+    return {
+      scenario, type,
+      prompt: "What joint and weld type does this symbol show?",
+      choices, correctAnswer: correct
+    };
+  } else {
+    const key = randomChoice(numericKeys);
+    const def = PARAM_DEFS[key];
+    const correctVal = scenario.params[key];
+    const correct = fmt(correctVal) + (def.unit ? " " + def.unit : "");
+    const distractors = new Set();
+    let guard = 0;
+    while (distractors.size < 3 && guard < 60) {
+      guard++;
+      const v = randomStep(def.min, def.max, def.step);
+      const label = fmt(v) + (def.unit ? " " + def.unit : "");
+      if (label !== correct) distractors.add(label);
+    }
+    const choices = shuffle([correct].concat(Array.from(distractors)));
+    return {
+      scenario, type, key,
+      prompt: "What is the " + def.label + " shown on this symbol?",
+      choices, correctAnswer: correct
+    };
+  }
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function startQuiz(count) {
+  state.quiz = {
+    total: count, index: 0, score: 0, answered: false, selected: null,
+    question: generateQuestion(), history: []
+  };
+  render();
+}
+function answerQuiz(choice) {
+  const q = state.quiz;
+  if (q.answered) return;
+  q.answered = true;
+  q.selected = choice;
+  const correct = choice === q.question.correctAnswer;
+  if (correct) q.score++;
+  q.history.push({ correct });
+  render();
+}
+function nextQuizQuestion() {
+  const q = state.quiz;
+  if (q.index + 1 >= q.total) {
+    q.finished = true;
+    render();
+    return;
+  }
+  q.index++;
+  q.answered = false;
+  q.selected = null;
+  q.question = generateQuestion();
+  render();
+}
+function exitQuiz() {
+  state.quiz = null;
+  setMode("guided");
+}
+function retakeQuiz() {
+  startQuiz(state.quiz.total);
+}
+
 function initParams(weldKey) {
   const p = {};
   WELD_TYPES[weldKey].params.forEach(key => {
@@ -78,9 +219,13 @@ function setMode(mode) {
   document.getElementById("btn-mode-guided").setAttribute("aria-selected", mode === "guided");
   document.getElementById("btn-mode-freeform").classList.toggle("active", mode === "freeform");
   document.getElementById("btn-mode-freeform").setAttribute("aria-selected", mode === "freeform");
-  document.getElementById("mode-badge").textContent = mode === "guided" ? "Guided Mode" : "Freeform Mode";
+  document.getElementById("btn-mode-quiz").classList.toggle("active", mode === "quiz");
+  document.getElementById("btn-mode-quiz").setAttribute("aria-selected", mode === "quiz");
+  document.getElementById("mode-badge").textContent = mode === "guided" ? "Guided Mode" : mode === "freeform" ? "Freeform Mode" : "Quiz Mode";
   document.getElementById("guided-nav").style.display = mode === "guided" ? "flex" : "none";
   document.getElementById("step-progress").style.visibility = mode === "guided" ? "visible" : "hidden";
+  document.getElementById("lines-root").style.display = mode === "quiz" ? "none" : "";
+  document.getElementById("toggle-dims").parentElement.style.display = mode === "quiz" ? "none" : "";
   render();
 }
 
@@ -479,6 +624,7 @@ function setFeedback(text) {
 
 // ---------- Render ----------
 function renderVisual() {
+  if (state.mode === "quiz") { renderQuizVisual(); return; }
   const line = activeLine();
   document.getElementById("tb-joint").textContent = JOINT_TYPES[state.joint].label;
   document.getElementById("tb-weld").textContent = WELD_TYPES[line.weld].label + (state.additionalLines.length ? " (Line " + (state.activeLine + 1) + ")" : "");
@@ -505,7 +651,35 @@ function renderVisual() {
   }
 }
 
+function renderQuizVisual() {
+  const svg = document.getElementById("symbol-svg");
+  document.querySelector(".sheet").classList.remove("calibrating");
+  if (!state.quiz || !state.quiz.question) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    document.getElementById("tb-joint").textContent = "\u2014";
+    document.getElementById("tb-weld").textContent = "\u2014";
+    document.getElementById("tb-side").textContent = "\u2014";
+    return;
+  }
+  const q = state.quiz.question;
+  document.getElementById("tb-joint").textContent = state.quiz.answered ? JOINT_TYPES[q.scenario.joint].label : "?";
+  document.getElementById("tb-weld").textContent = state.quiz.answered ? WELD_TYPES[q.scenario.weld].label : "?";
+  document.getElementById("tb-side").textContent = state.quiz.answered
+    ? { arrow: "Arrow side", other: "Other side", double: "Double" }[q.scenario.side] : "?";
+  try {
+    renderSymbol(svg, quizAppState(q.scenario));
+  } catch (err) {
+    console.error("Quiz symbol render failed:", err);
+  }
+}
+
 function render() {
+  if (state.mode === "quiz") {
+    document.getElementById("panel-root").innerHTML = "";
+    buildQuizPanel(document.getElementById("panel-root"));
+    renderVisual();
+    return;
+  }
   buildLinesPanel();
   const root = document.getElementById("panel-root");
   root.innerHTML = "";
@@ -530,6 +704,100 @@ function render() {
   }
 
   renderVisual();
+}
+
+function buildQuizPanel(container) {
+  const panel = document.createElement("div");
+  panel.className = "quiz-panel";
+
+  if (!state.quiz) {
+    panel.innerHTML = `
+      <div class="quiz-start">
+        <h3>Practice Quiz</h3>
+        <p>Random weld symbols are drawn on the sheet \u2014 identify the joint and weld type, or read a dimension straight off the symbol.</p>
+        <div class="quiz-count-select" id="quiz-count-select">
+          ${[5, 10, 25].map(n => `<button type="button" data-n="${n}" class="${n === 10 ? "active" : ""}">${n} questions</button>`).join("")}
+        </div>
+        <button type="button" class="btn-start-quiz" id="btn-start-quiz">Start Quiz</button>
+      </div>`;
+    container.appendChild(panel);
+    let selectedCount = 10;
+    panel.querySelectorAll("#quiz-count-select button").forEach(b => {
+      b.onclick = () => {
+        panel.querySelectorAll("#quiz-count-select button").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        selectedCount = parseInt(b.dataset.n, 10);
+      };
+    });
+    document.getElementById("btn-start-quiz").onclick = () => startQuiz(selectedCount);
+    return;
+  }
+
+  const q = state.quiz;
+  if (q.finished) {
+    const pct = Math.round((q.score / q.total) * 100);
+    panel.innerHTML = `
+      <div class="quiz-results">
+        <div>Quiz complete</div>
+        <div class="big-score">${q.score} / ${q.total}</div>
+        <p>${pct}% correct</p>
+        <div class="quiz-results-actions">
+          <button type="button" class="btn-start-quiz" id="btn-retake">Retake</button>
+          <button type="button" class="btn-secondary" id="btn-exit-quiz">Back to Builder</button>
+        </div>
+      </div>`;
+    container.appendChild(panel);
+    document.getElementById("btn-retake").onclick = () => retakeQuiz();
+    document.getElementById("btn-exit-quiz").onclick = () => exitQuiz();
+    return;
+  }
+
+  const progress = document.createElement("div");
+  progress.className = "quiz-progress";
+  progress.innerHTML = `<span>Question ${q.index + 1} of ${q.total}</span><span class="score">Score: ${q.score}</span>`;
+  panel.appendChild(progress);
+
+  const question = document.createElement("div");
+  question.className = "quiz-question";
+  question.textContent = q.question.prompt;
+  panel.appendChild(question);
+
+  const choices = document.createElement("div");
+  choices.className = "quiz-choices";
+  q.question.choices.forEach(choice => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "quiz-choice";
+    b.textContent = choice;
+    if (q.answered) {
+      b.disabled = true;
+      if (choice === q.question.correctAnswer) b.classList.add("correct");
+      else if (choice === q.selected) b.classList.add("incorrect");
+    } else {
+      b.onclick = () => answerQuiz(choice);
+    }
+    choices.appendChild(b);
+  });
+  panel.appendChild(choices);
+
+  if (q.answered) {
+    const correct = q.selected === q.question.correctAnswer;
+    const feedback = document.createElement("div");
+    feedback.className = "quiz-feedback " + (correct ? "correct" : "incorrect");
+    feedback.textContent = correct
+      ? "Correct!"
+      : "Not quite \u2014 the correct answer is " + q.question.correctAnswer + ".";
+    panel.appendChild(feedback);
+
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.className = "btn-next-question";
+    nextBtn.textContent = q.index + 1 >= q.total ? "See results" : "Next question";
+    nextBtn.onclick = () => nextQuizQuestion();
+    panel.appendChild(nextBtn);
+  }
+
+  container.appendChild(panel);
 }
 
 function fmt(n) {
