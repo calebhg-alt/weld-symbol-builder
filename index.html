@@ -386,6 +386,16 @@
     text-decoration:underline;
     font-weight:700;
   }
+  #symbol-svg .snap-point{cursor:pointer;}
+  #symbol-svg .snap-point .snap-ring{transition:fill 0.1s ease, stroke-width 0.1s ease;}
+  #symbol-svg .snap-point:hover .snap-ring,
+  #symbol-svg .snap-point:focus .snap-ring{
+    fill:rgba(242,199,68,0.45);
+    stroke-width:2.5;
+  }
+  #symbol-svg .snap-point:focus .snap-ring{
+    stroke:#FFFFFF;
+  }
 
   .choice-grid{
     display:grid;
