@@ -99,6 +99,89 @@
   .mode-switch button.active{background:var(--navy); color:white;}
   .mode-switch button:not(.active):hover{background:var(--paper);}
 
+  kbd{
+    display:inline-block;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    background:var(--paper);
+    border:1.5px solid var(--control-border);
+    border-radius:4px;
+    padding:1px 6px;
+    color:var(--navy);
+    box-shadow:0 1.5px 0 var(--control-border);
+  }
+  .btn-shortcuts-toggle{
+    width:100%;
+    margin-bottom:14px;
+    padding:8px 10px;
+    border-radius:6px;
+    border:1.5px solid var(--control-border);
+    background:white;
+    color:var(--steel);
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+  }
+  .btn-shortcuts-toggle:hover{border-color:var(--navy); color:var(--navy);}
+
+  .shortcut-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(15,29,54,0.55);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+    padding:20px;
+  }
+  .shortcut-panel{
+    background:white;
+    border-radius:10px;
+    padding:20px 22px;
+    max-width:440px;
+    width:100%;
+    max-height:80vh;
+    overflow-y:auto;
+    box-shadow:0 20px 60px rgba(0,0,0,0.35);
+  }
+  .shortcut-panel-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:14px;
+  }
+  .shortcut-panel-header h3{
+    font-family:'IBM Plex Sans Condensed', sans-serif;
+    font-size:18px;
+    color:var(--navy);
+  }
+  .shortcut-close{
+    width:30px;
+    height:30px;
+    border-radius:6px;
+    border:1.5px solid var(--control-border);
+    background:white;
+    color:var(--steel);
+    cursor:pointer;
+    font-size:14px;
+  }
+  .shortcut-close:hover{border-color:var(--red); color:var(--red);}
+  .shortcut-list{margin-top:14px; display:flex; flex-direction:column; gap:2px;}
+  .shortcut-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:8px 4px;
+    border-bottom:1px solid var(--paper);
+    font-size:13px;
+    color:var(--ink);
+  }
+  .shortcut-row kbd{min-width:70px; text-align:center;}
+
   .dims-toggle{
     display:flex;
     align-items:center;
@@ -592,6 +675,10 @@
       <button id="btn-mode-freeform" role="tab" aria-selected="false" onclick="setMode('freeform')">Freeform</button>
       <button id="btn-mode-quiz" role="tab" aria-selected="false" onclick="setMode('quiz')">Quiz</button>
     </div>
+
+    <button type="button" class="btn-shortcuts-toggle" onclick="state.showShortcutPanel = true; render();">
+      &#9000; Keyboard shortcuts <kbd>?</kbd>
+    </button>
 
     <label class="dims-toggle">
       <input type="checkbox" id="toggle-dims" checked>
