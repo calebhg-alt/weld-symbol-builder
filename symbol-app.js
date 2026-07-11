@@ -23,7 +23,8 @@ const state = {
   activeLine: 0,         // which line is being edited: 0 = the fields above, 1+ = additionalLines[n-1]
   quiz: null,             // active quiz session, or null when not quizzing — see startQuiz()
   shortcutsEnabled: true, // WCAG 2.1.4: single-key shortcuts must be able to be turned off
-  showShortcutPanel: false
+  showShortcutPanel: false,
+  showWcagReport: false
 };
 
 const STEP_COUNT = 4;
@@ -705,6 +706,7 @@ function renderQuizVisual() {
 
 function render() {
   buildShortcutPanel();
+  buildWcagReportPanel();
   if (state.mode === "quiz") {
     document.getElementById("panel-root").innerHTML = "";
     buildQuizPanel(document.getElementById("panel-root"));
@@ -907,6 +909,7 @@ function handleShortcutKeydown(e) {
 
   if (e.key === "Escape") {
     if (state.showShortcutPanel) { state.showShortcutPanel = false; render(); return; }
+    if (state.showWcagReport) { state.showWcagReport = false; render(); return; }
     if (state.calibrating) {
       toggleCalibrate(false);
       const btn = document.getElementById("btn-calibrate");
@@ -968,6 +971,64 @@ function buildShortcutPanel() {
   document.getElementById("btn-close-shortcuts").focus();
 }
 
+// ---------- WCAG compliance report ----------
+// A record of the specific success criteria this app was built and
+// self-tested against, and how. Kept as data (not just prose) so it can be
+// tested the same way the shortcut map is — e.g. confirming every entry
+// actually has a criterion id and a real, non-empty description.
+const WCAG_REPORT = {
+  standard: "WCAG 2.1 Level AA",
+  summary: "This tool was built and self-tested against the WCAG 2.1 Level AA success criteria below. Verification was automated (computed color-contrast ratios, simulated keyboard interaction, DOM/ARIA structure checks) rather than a formal audit \u2014 see \u201cScope & limitations\u201d.",
+  criteria: [
+    { id: "1.1.1", name: "Non-text Content", note: "The symbol diagram has a text alternative that describes what's shown in the builder, and stays generic in Quiz mode so it never reveals an \u201cidentify this symbol\u201d answer. Purely decorative illustration elements are hidden from assistive technology." },
+    { id: "1.4.1", name: "Use of Color", note: "Quiz answer correctness is marked with a \u2713 or \u2717 symbol alongside the color change, not color alone." },
+    { id: "1.4.3", name: "Contrast (Minimum)", note: "Text meets a 4.5:1 contrast ratio against its background, checked by computing actual WCAG relative-luminance contrast ratios for every color pairing in the app, not estimating by eye." },
+    { id: "1.4.11", name: "Non-text Contrast", note: "Borders on interactive controls (buttons, inputs, choice cards) meet a 3:1 contrast ratio so their boundaries are identifiable." },
+    { id: "2.1.1", name: "Keyboard", note: "Every feature is fully operable by keyboard alone, including the arrow-position calibrator, which was mouse-only until specifically fixed for this." },
+    { id: "2.1.2", name: "No Keyboard Trap", note: "Focus can always be moved away from any component \u2014 including the calibrator and modal panels \u2014 using Tab or Escape." },
+    { id: "2.1.4", name: "Character Key Shortcuts", note: "Every single-key shortcut can be turned off entirely from the shortcuts panel (press \u2018?\u2019) without losing access to any feature." },
+    { id: "2.4.3", name: "Focus Order", note: "Tab order follows a logical, predictable sequence, and focus is explicitly redirected when dynamic UI changes \u2014 e.g. after answering a quiz question, after a calibration action rebuilds part of the sidebar." },
+    { id: "2.4.7", name: "Focus Visible", note: "Every focusable element, including custom SVG controls, shows a visible focus indicator." },
+    { id: "4.1.2", name: "Name, Role, Value", note: "Custom interactive elements \u2014 clickable dimension labels, corner snap points, quiz answer choices \u2014 expose accessible names, roles, and states through ARIA rather than relying on visual appearance alone." },
+    { id: "4.1.3", name: "Status Messages", note: "Quiz score updates and answer feedback are announced through ARIA live regions as they happen, without stealing or moving focus unexpectedly." }
+  ],
+  limitations: "This is a self-conducted, good-faith accessibility effort, not a certified third-party audit. Verification here used automated contrast calculation and simulated (JSDOM-based) keyboard testing rather than real assistive technology (NVDA, JAWS, VoiceOver) or testing with people with disabilities. For a compliance determination suitable for procurement or legal purposes, a formal audit by a qualified accessibility professional is recommended."
+};
+
+function buildWcagReportPanel() {
+  const existing = document.getElementById("wcag-report-overlay");
+  if (existing) existing.remove();
+  if (!state.showWcagReport) return;
+
+  const overlay = document.createElement("div");
+  overlay.id = "wcag-report-overlay";
+  overlay.className = "shortcut-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-label", "WCAG accessibility compliance report");
+  overlay.setAttribute("aria-modal", "true");
+
+  const panel = document.createElement("div");
+  panel.className = "shortcut-panel wcag-panel";
+  const rows = WCAG_REPORT.criteria.map(c =>
+    `<div class="wcag-row"><div class="wcag-id"><kbd>${c.id}</kbd><span class="wcag-name">${c.name}</span></div><p>${c.note}</p></div>`
+  ).join("");
+  panel.innerHTML = `
+    <div class="shortcut-panel-header">
+      <h3>Accessibility compliance report</h3>
+      <button type="button" class="shortcut-close" id="btn-close-wcag" aria-label="Close accessibility report">\u2715</button>
+    </div>
+    <p class="wcag-standard">${WCAG_REPORT.standard}</p>
+    <p class="wcag-summary">${WCAG_REPORT.summary}</p>
+    <div class="wcag-list">${rows}</div>
+    <div class="wcag-limitations"><strong>Scope &amp; limitations:</strong> ${WCAG_REPORT.limitations}</div>
+  `;
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  document.getElementById("btn-close-wcag").onclick = () => { state.showWcagReport = false; render(); };
+  overlay.onclick = (e) => { if (e.target === overlay) { state.showWcagReport = false; render(); } };
+  document.getElementById("btn-close-wcag").focus();
+}
+
 function fmt(n) {
   if (n === undefined || n === null) return "";
   return (Math.round(n * 10000) / 10000).toString().replace(/^0\./, ".");
@@ -977,4 +1038,10 @@ document.getElementById("toggle-dims").onchange = (e) => toggleDimensions(e.targ
 document.getElementById("symbol-svg").addEventListener("click", handleSvgClick);
 document.addEventListener("keydown", handleShortcutKeydown);
 
-render();
+// Explicitly set the mode (rather than just calling render()) so every
+// mode-dependent bit of UI — guided-nav visibility, the step progress
+// dots, the mode-switch button states, the header badge — is correctly
+// initialized on first load, not just the panel content. render() alone
+// left #guided-nav stuck at its hardcoded display:none from the static
+// HTML, since only setMode() ever corrects that.
+setMode(state.mode);
