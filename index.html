@@ -182,6 +182,43 @@
   }
   .shortcut-row kbd{min-width:70px; text-align:center;}
 
+  .wcag-panel{max-width:560px;}
+  .wcag-standard{
+    font-family:'IBM Plex Sans Condensed', sans-serif;
+    font-weight:700;
+    font-size:15px;
+    color:var(--red);
+    margin-bottom:6px;
+  }
+  .wcag-summary{font-size:12.5px; color:var(--steel); line-height:1.5; margin-bottom:14px;}
+  .wcag-list{display:flex; flex-direction:column; gap:12px; margin-bottom:16px;}
+  .wcag-row{padding-bottom:10px; border-bottom:1px solid var(--paper);}
+  .wcag-id{display:flex; align-items:center; gap:8px; margin-bottom:4px;}
+  .wcag-id kbd{min-width:44px; text-align:center; font-size:10.5px;}
+  .wcag-name{font-weight:700; font-size:12.5px; color:var(--navy);}
+  .wcag-row p{font-size:12px; color:var(--ink); line-height:1.5;}
+  .wcag-limitations{
+    font-size:11.5px;
+    color:var(--steel);
+    line-height:1.5;
+    background:var(--paper);
+    border-radius:6px;
+    padding:10px 12px;
+  }
+  .wcag-report-link{
+    display:inline;
+    background:none;
+    border:none;
+    color:var(--red);
+    text-decoration:underline;
+    font-size:inherit;
+    font-family:inherit;
+    cursor:pointer;
+    padding:0;
+    margin-left:4px;
+  }
+  .wcag-report-link:hover{color:#7A1212;}
+
   .dims-toggle{
     display:flex;
     align-items:center;
@@ -691,7 +728,7 @@
 
     <div id="panel-root"></div>
 
-    <div class="nav-buttons" id="guided-nav" style="display:none;">
+    <div class="nav-buttons" id="guided-nav" style="display:flex;">
       <button class="btn-secondary" id="btn-back" onclick="stepBack()">Back</button>
       <button class="btn-primary" id="btn-next" onclick="stepNext()">Next</button>
     </div>
@@ -739,6 +776,9 @@
 
       <div class="disclaimer">
         Educational use only. Simplified for instructional clarity — refer to AWS A2.4 for exact drafting proportions.
+        <br>
+        Built to <strong>WCAG 2.1 Level AA</strong> success criteria.
+        <button type="button" class="wcag-report-link" onclick="state.showWcagReport = true; render();">View accessibility compliance report</button>
       </div>
     </div>
   </div>
