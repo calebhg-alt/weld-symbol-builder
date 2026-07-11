@@ -21,7 +21,9 @@ const state = {
   touchedParams: {},
   additionalLines: [],  // extra reference lines beyond the first (stacked, sharing one joint/arrow/tail)
   activeLine: 0,         // which line is being edited: 0 = the fields above, 1+ = additionalLines[n-1]
-  quiz: null             // active quiz session, or null when not quizzing — see startQuiz()
+  quiz: null,             // active quiz session, or null when not quizzing — see startQuiz()
+  shortcutsEnabled: true, // WCAG 2.1.4: single-key shortcuts must be able to be turned off
+  showShortcutPanel: false
 };
 
 const STEP_COUNT = 4;
@@ -702,6 +704,7 @@ function renderQuizVisual() {
 }
 
 function render() {
+  buildShortcutPanel();
   if (state.mode === "quiz") {
     document.getElementById("panel-root").innerHTML = "";
     buildQuizPanel(document.getElementById("panel-root"));
@@ -852,6 +855,119 @@ function buildQuizPanel(container) {
   container.appendChild(panel);
 }
 
+// ---------- Keyboard shortcuts ----------
+// Single source of truth: both the actual key-handling AND the help panel
+// read from this same list, so the two can never drift out of sync (no
+// shortcut that's documented but doesn't work, or vice versa). Every
+// `key` value below is checked for uniqueness by a test — see test.js.
+const KEYBOARD_SHORTCUTS = [
+  { key: "?", display: "Shift + /", description: "Show or hide this shortcuts panel", scope: "global",
+    action: () => { state.showShortcutPanel = !state.showShortcutPanel; render(); } },
+  { key: "g", display: "G", description: "Switch to Guided mode", scope: "global",
+    action: () => setMode("guided") },
+  { key: "f", display: "F", description: "Switch to Freeform mode", scope: "global",
+    action: () => setMode("freeform") },
+  { key: "q", display: "Q", description: "Switch to Quiz mode", scope: "global",
+    action: () => setMode("quiz") },
+  { key: "d", display: "D", description: "Toggle dimension values on the symbol", scope: "builder",
+    action: () => toggleDimensions(!state.showDimensions) },
+  { key: "c", display: "C", description: "Toggle arrow calibration (set arrow position)", scope: "builder",
+    action: () => toggleCalibrate(!state.calibrating) },
+  { key: "n", display: "N", description: "Add a new reference line", scope: "builder",
+    action: () => addLine() },
+  { key: "ArrowRight", display: "\u2192", description: "Next step (Guided mode)", scope: "guided",
+    action: () => { if (state.step < STEP_COUNT - 1) stepNext(); } },
+  { key: "ArrowLeft", display: "\u2190", description: "Back a step (Guided mode)", scope: "guided",
+    action: () => { if (state.step > 0) stepBack(); } },
+  { key: "1", display: "1\u20134", description: "Select quiz answer choice 1\u20134", scope: "quiz",
+    action: () => selectQuizChoiceByIndex(0) },
+  { key: "2", display: null, description: null, scope: "quiz", action: () => selectQuizChoiceByIndex(1) },
+  { key: "3", display: null, description: null, scope: "quiz", action: () => selectQuizChoiceByIndex(2) },
+  { key: "4", display: null, description: null, scope: "quiz", action: () => selectQuizChoiceByIndex(3) }
+];
+// Escape is handled separately, always-on regardless of the shortcuts
+// toggle — WCAG 2.1.4 targets single printable-character shortcuts
+// specifically; Escape-to-close/cancel is a standard, expected pattern
+// that assistive tech and browsers already treat as safe.
+
+function selectQuizChoiceByIndex(i) {
+  if (state.mode !== "quiz" || !state.quiz || state.quiz.finished || state.quiz.answered) return;
+  const choice = state.quiz.question && state.quiz.question.choices[i];
+  if (choice !== undefined) answerQuiz(choice);
+}
+
+function currentShortcutScope() {
+  if (state.mode === "quiz") return "quiz";
+  return "builder"; // covers global + builder + guided; guided-only entries self-check state.mode
+}
+
+function handleShortcutKeydown(e) {
+  const target = e.target;
+  const isTyping = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
+
+  if (e.key === "Escape") {
+    if (state.showShortcutPanel) { state.showShortcutPanel = false; render(); return; }
+    if (state.calibrating) {
+      toggleCalibrate(false);
+      const btn = document.getElementById("btn-calibrate");
+      if (btn) btn.focus();
+    }
+    return;
+  }
+
+  if (isTyping) return; // never hijack normal typing in a text field
+  if (!state.shortcutsEnabled) return;
+
+  const scope = currentShortcutScope();
+  const entry = KEYBOARD_SHORTCUTS.find(s => s.key === e.key && (s.scope === "global" || s.scope === scope || (s.scope === "guided" && state.mode === "guided")));
+  if (entry) {
+    e.preventDefault();
+    entry.action();
+  }
+}
+
+function toggleShortcutsEnabled(on) {
+  state.shortcutsEnabled = on;
+  render();
+}
+
+function buildShortcutPanel() {
+  const existing = document.getElementById("shortcut-panel-overlay");
+  if (existing) existing.remove();
+  if (!state.showShortcutPanel) return;
+
+  const overlay = document.createElement("div");
+  overlay.id = "shortcut-panel-overlay";
+  overlay.className = "shortcut-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-label", "Keyboard shortcuts");
+  overlay.setAttribute("aria-modal", "true");
+
+  const panel = document.createElement("div");
+  panel.className = "shortcut-panel";
+  const rows = KEYBOARD_SHORTCUTS.filter(s => s.description).map(s =>
+    `<div class="shortcut-row"><kbd>${s.display}</kbd><span>${s.description}</span></div>`
+  ).join("");
+  panel.innerHTML = `
+    <div class="shortcut-panel-header">
+      <h3>Keyboard shortcuts</h3>
+      <button type="button" class="shortcut-close" id="btn-close-shortcuts" aria-label="Close shortcuts panel">\u2715</button>
+    </div>
+    <label class="dims-toggle">
+      <input type="checkbox" id="toggle-shortcuts-enabled" ${state.shortcutsEnabled ? "checked" : ""}>
+      Enable single-key shortcuts
+    </label>
+    <div class="field-hint">Turn this off if single letters (like typing into a text field) should never be interpreted as a shortcut. Escape and Tab always work regardless.</div>
+    <div class="shortcut-list">${rows}</div>
+  `;
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  document.getElementById("btn-close-shortcuts").onclick = () => { state.showShortcutPanel = false; render(); };
+  document.getElementById("toggle-shortcuts-enabled").onchange = (e) => toggleShortcutsEnabled(e.target.checked);
+  overlay.onclick = (e) => { if (e.target === overlay) { state.showShortcutPanel = false; render(); } };
+  document.getElementById("btn-close-shortcuts").focus();
+}
+
 function fmt(n) {
   if (n === undefined || n === null) return "";
   return (Math.round(n * 10000) / 10000).toString().replace(/^0\./, ".");
@@ -859,12 +975,6 @@ function fmt(n) {
 
 document.getElementById("toggle-dims").onchange = (e) => toggleDimensions(e.target.checked);
 document.getElementById("symbol-svg").addEventListener("click", handleSvgClick);
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && state.calibrating) {
-    toggleCalibrate(false);
-    const btn = document.getElementById("btn-calibrate");
-    if (btn) btn.focus();
-  }
-});
+document.addEventListener("keydown", handleShortcutKeydown);
 
 render();
