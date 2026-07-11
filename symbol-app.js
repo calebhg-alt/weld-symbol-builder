@@ -240,15 +240,43 @@ function toggleDimensions(checked) {
 // clicking the other member of the joint moves the arrow there.
 function toggleCalibrate(on) {
   state.calibrating = on;
-  renderVisual();
+  render(); // rebuilds the sidebar too — the button label and hint text
+            // both need to change, not just the SVG (this was previously
+            // calling renderVisual() only, so neither ever actually updated)
+  if (on) {
+    // Land keyboard focus on the first snap point immediately — otherwise a
+    // keyboard user has no way to discover where the newly-shown, focusable
+    // corners are without blindly tabbing through the whole diagram.
+    setTimeout(() => {
+      const firstSnap = document.querySelector("#symbol-svg .snap-point");
+      if (firstSnap) firstSnap.focus();
+    }, 0);
+  } else {
+    // Rebuilding the sidebar replaces the calibrate button with a new DOM
+    // node, which silently drops focus — explicitly return it so keyboard
+    // users don't lose their place.
+    const btn = document.getElementById("btn-calibrate");
+    if (btn) btn.focus();
+  }
 }
 function setArrowOverride(x, y) {
   state.arrowOverrides[state.joint] = { x: Math.round(x), y: Math.round(y) };
-  renderVisual();
+  render(); // sidebar hint/reset-button state depends on this, not just the SVG
+  // Re-focus the same snap point after the rebuild replaces it with a new
+  // DOM node — otherwise a keyboard user's focus silently vanishes right
+  // after the action that's supposed to keep them oriented.
+  setTimeout(() => {
+    const match = document.querySelector('#symbol-svg .snap-point[data-snap-x="' + Math.round(x) + '"][data-snap-y="' + Math.round(y) + '"]');
+    if (match) match.focus();
+  }, 0);
 }
 function resetArrowOverride() {
   delete state.arrowOverrides[state.joint];
-  renderVisual();
+  render();
+  // The reset button itself becomes disabled once there's nothing left to
+  // reset, so it can't hold focus — send it to "Set arrow position" instead.
+  const cal = document.getElementById("btn-calibrate");
+  if (cal) cal.focus();
 }
 function handleSvgClick(evt) {
   if (!state.calibrating) return;
@@ -508,11 +536,11 @@ function buildSideStep(container) {
   let defaultHint = "Uses the default root location for this joint.";
   if (needsFace) defaultHint += " Only one member is prepped for this weld \u2014 click a corner on that member to point the arrow at it.";
   arrowControls.innerHTML = `
-    <button type="button" id="btn-calibrate" class="${state.calibrating ? "active" : ""}">${state.calibrating ? "Click the diagram to set the arrow\u2026" : "Set arrow position"}</button>
+    <button type="button" id="btn-calibrate" aria-pressed="${state.calibrating}" class="${state.calibrating ? "active" : ""}">${state.calibrating ? "Click the diagram to set the arrow\u2026" : "Set arrow position"}</button>
     <button type="button" id="btn-reset-arrow" ${hasOverride ? "" : "disabled"}>Reset to default</button>
     <div class="field-hint">
       ${state.calibrating
-        ? "Gold circles mark each corner \u2014 click one to snap exactly to it, or click anywhere else for a free position."
+        ? "Gold circles mark each corner \u2014 click one to snap exactly to it, click anywhere else for a free position, or Tab to a corner and press Enter. Press Escape to stop."
         : (hasOverride ? "Arrow position has been customized for this joint." : defaultHint)}
       ${state.additionalLines.length ? " This arrow and joint are shared by every reference line." : ""}
     </div>`;
@@ -831,5 +859,12 @@ function fmt(n) {
 
 document.getElementById("toggle-dims").onchange = (e) => toggleDimensions(e.target.checked);
 document.getElementById("symbol-svg").addEventListener("click", handleSvgClick);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && state.calibrating) {
+    toggleCalibrate(false);
+    const btn = document.getElementById("btn-calibrate");
+    if (btn) btn.focus();
+  }
+});
 
 render();
