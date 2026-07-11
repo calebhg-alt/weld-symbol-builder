@@ -868,8 +868,12 @@ function renderSymbol(svg, appState) {
 
     const glyphCx = thisLineX1 + 130;
     let arrowRepeat = null, otherRepeat = null;
+    // Length/pitch always exist on a fillet's param set (they're optional
+    // fields, not always-intermittent ones) — only draw the repeated
+    // chain/stagger pattern once the person has actually entered BOTH
+    // values, not just because the fields happen to hold their defaults.
     if (lineData.weld === "fillet" && lineData.side === "double" &&
-        lineData.params.length !== undefined && lineData.params.pitch !== undefined) {
+        lineData.touchedParams.length && lineData.touchedParams.pitch) {
       const spacing = 48;
       arrowRepeat = { offsets: [-spacing, 0, spacing] };
       const shift = lineData.chainStagger === "staggered" ? spacing / 2 : 0;
